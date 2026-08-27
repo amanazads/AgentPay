@@ -34,88 +34,87 @@ export default function Landing() {
     }
   };
 
-  // Buyer 9-Stage Pipeline Data
+  // Buyer 10-Stage Verified Procurement Lifecycle
   const buyerSteps = [
     {
       num: '01',
-      title: 'Natural language intent',
-      label: 'Intent Capture',
-      desc: 'Buyer expresses procurement criteria in plain text ("Find wireless ergonomic mouse under ₹9,000 with silent switches").',
-      badge: 'LLM Parser',
-      details: 'Deterministic extraction of product category, brand preference, price ceilings, and mandatory hardware specs.',
+      title: 'Natural Language Intent',
+      badge: 'Intent Parser',
+      desc: 'Buyer expresses procurement criteria in natural language ("Find a wireless ergonomic mouse under ₹9,000 with silent switches").',
+      details: 'Deterministic extraction of product category, brand preference, price ceilings, and mandatory specifications.',
     },
     {
       num: '02',
-      title: 'AI product discovery',
-      label: 'Candidate Search',
-      desc: 'Autonomous agent queries connected AI-ready merchant catalogs for structured matching products.',
+      title: 'AI Product Discovery',
       badge: 'Catalog API',
-      details: 'High-performance vector and attribute filtering across verified merchant catalogs.',
+      desc: 'Autonomous agent queries connected AI-ready merchant catalogs for structured matching products.',
+      details: 'High-performance vector and attribute search across verified merchant stores.',
     },
     {
       num: '03',
-      title: 'Product comparison',
-      label: 'Constraint Ranking',
-      desc: 'Multi-merchant comparison based on user constraints: price, delivery timeframe, merchant rating, and stock.',
+      title: 'Product Matching',
       badge: 'Ranking Engine',
-      details: 'Scores candidates objectively against user constraints without advertising bias.',
+      desc: 'Ranks candidates against buyer constraints: price, delivery timeframe, merchant rating, and stock status.',
+      details: 'Objective multi-attribute scoring with zero sponsored bias or dark patterns.',
     },
     {
       num: '04',
-      title: 'Buyer policy evaluation',
-      label: 'Deterministic Gate',
-      desc: 'Server-side policy engine verifies single-order caps, daily limits, category rules, and risk score thresholds.',
-      badge: 'Policy Engine',
-      details: 'Strict mathematical bounding: if amount > user limit, escalates to human approval instead of executing.',
+      title: 'Buyer Preferences',
+      badge: 'User Constraints',
+      desc: 'Applies personalized buyer preferences such as preferred shipping carriers and brand priorities.',
+      details: 'Configured once, enforced deterministically across all autonomous agent procurement runs.',
     },
     {
       num: '05',
-      title: 'Price & inventory verification',
-      label: 'Pre-flight Gate',
-      desc: 'Revalidates live catalog pricing against surge limits (max 5% drift) and locks real-time stock reservations.',
-      badge: 'Price & Stock Gate',
-      details: 'Prevents checkout on out-of-stock items or price spikes during agent discovery.',
+      title: 'Policy Evaluation',
+      badge: 'Deterministic Gate',
+      desc: 'Server-side policy engine verifies per-transaction limits, daily budgets, category whitelists, and risk score thresholds.',
+      details: 'Strict mathematical bounding: if price exceeds limit, transaction halts or escalates to 1-click human review.',
     },
     {
       num: '06',
-      title: 'Authorized checkout',
-      label: 'Idempotent Token',
-      desc: 'Server creates an authorized checkout session with an idempotent cryptographic transaction key.',
-      badge: 'Idempotency Lock',
-      details: 'SHA-256 idempotency locking prevents double-charging on network retries.',
+      title: 'Price & Inventory Validation',
+      badge: 'Pre-flight Gate',
+      desc: 'Revalidates live catalog price against surge limits and acquires an atomic stock reservation lock.',
+      details: 'PRICE CHANGE PROTECTION: Final checkout price must remain within buyer authorization.',
     },
     {
       num: '07',
-      title: 'Payment',
-      label: 'Payment Rails',
-      desc: 'Razorpay sandbox rails execute transaction with HMAC-SHA256 signature verification.',
-      badge: 'Razorpay Rails',
-      details: 'Cryptographic signature verification proves genuine authorization before state progression.',
+      title: 'Authorized Checkout',
+      badge: 'Idempotent Token',
+      desc: 'Creates an authorized checkout session with an idempotent cryptographic transaction key.',
+      badge2: 'Idempotency Lock',
+      details: 'SHA-256 idempotency locking guarantees no duplicate charges during network retries.',
     },
     {
       num: '08',
-      title: 'Merchant order',
-      label: 'Order Dispatch',
-      desc: 'Confirmed order injected directly into merchant fulfillment ledger with verified payment status.',
-      badge: 'Order Ledger',
-      details: 'Fulfillment record generated with line items, tax breakdown, and shipping address.',
+      title: 'Payment',
+      badge: 'Payment Rails',
+      desc: 'Razorpay payment order executes with cryptographic HMAC-SHA256 signature verification.',
+      details: 'Signature verification proves genuine authorization before state progression.',
     },
     {
       num: '09',
+      title: 'Merchant Order',
+      badge: 'Order Dispatch',
+      desc: 'Verified order injected directly into merchant fulfillment ledger with payment confirmed.',
+      details: 'Order created with line items, tax breakdown, and shipping destination.',
+    },
+    {
+      num: '10',
       title: 'Fulfillment',
-      label: 'Delivery & Invoice',
-      desc: 'Automated invoice generation, carrier tracking assignment, and live buyer status notifications.',
-      badge: 'Invoice & Tracking',
-      details: 'End-to-end receipt generation with complete immutable audit timeline.',
+      badge: 'Invoice & Delivery',
+      desc: 'Automated invoice generation, carrier tracking assignment, and complete immutable audit timeline.',
+      details: 'Full transaction receipt and immutable audit log available immediately to buyer and merchant.',
     },
   ];
 
-  // Merchant 8-Stage Pipeline Data
+  // Merchant 9-Stage Enablement Lifecycle
   const merchantSteps = [
     {
       num: '01',
-      title: 'Your Catalog',
-      desc: 'Connect your existing store inventory via REST API or CSV catalog import.',
+      title: 'Merchant Catalog',
+      desc: 'Connect your existing store inventory via REST API or structured product feeds.',
     },
     {
       num: '02',
@@ -124,18 +123,18 @@ export default function Landing() {
     },
     {
       num: '03',
-      title: 'AI Discovery',
+      title: 'AI Discoverability',
       desc: 'Autonomous buyer agents discover your products through high-speed structured search endpoints.',
     },
     {
       num: '04',
-      title: 'Real-time Inventory',
+      title: 'Inventory Availability',
       desc: 'Atomic stock verification prevents overselling with temporary quote reservation locks.',
     },
     {
       num: '05',
-      title: 'Verified Quotes',
-      desc: 'Deterministic price quotes guarantee exact checkout amounts with zero unexpected surge.',
+      title: 'Price Quotes',
+      desc: 'Deterministic price quotes guarantee exact checkout amounts with zero unexpected drift.',
     },
     {
       num: '06',
@@ -144,13 +143,18 @@ export default function Landing() {
     },
     {
       num: '07',
-      title: 'AI-originated Orders',
-      desc: 'Orders arrive pre-paid with verified payment status directly into your fulfillment pipeline.',
+      title: 'AI-Originated Order',
+      desc: 'Pre-paid orders arrive with verified payment status directly into your fulfillment pipeline.',
     },
     {
       num: '08',
-      title: 'Revenue',
-      desc: 'Grow merchant GMV by tapping directly into autonomous AI procurement budgets.',
+      title: 'Payment Verification',
+      desc: 'Cryptographic HMAC-SHA256 verification confirms payment before stock decrement occurs.',
+    },
+    {
+      num: '09',
+      title: 'Fulfillment',
+      desc: 'Dispatch orders with integrated courier tracking and automated GST invoice issuance.',
     },
   ];
 
@@ -174,10 +178,10 @@ export default function Landing() {
               Role Selection
             </button>
             <button className="ap-nav-link" onClick={() => scrollToSection('buyer-workflow')}>
-              Buyer Agent
+              Buyer Flow
             </button>
             <button className="ap-nav-link" onClick={() => scrollToSection('merchant-solution')}>
-              Merchant Store
+              Merchant Flow
             </button>
             <button className="ap-nav-link" onClick={() => scrollToSection('architecture')}>
               Architecture
@@ -223,13 +227,13 @@ export default function Landing() {
                 <Icons.Sparkles size={16} /> Buyer Agent Workflow
               </button>
               <button className="ap-mobile-nav-link" onClick={() => scrollToSection('merchant-solution')}>
-                <Icons.Store size={16} /> Merchant Enablement (Track 01)
+                <Icons.Store size={16} /> Merchant Flow (Track 01)
               </button>
               <button className="ap-mobile-nav-link" onClick={() => scrollToSection('architecture')}>
                 <Icons.Layers size={16} /> Two-Sided Architecture
               </button>
               <button className="ap-mobile-nav-link" onClick={() => scrollToSection('trust-safety')}>
-                <Icons.ShieldCheck size={16} /> Trust & Safety Principles
+                <Icons.ShieldCheck size={16} /> Controlled Autonomous Commerce
               </button>
             </div>
             <div className="ap-mobile-drawer-actions">
@@ -268,14 +272,13 @@ export default function Landing() {
 
           {/* Main Headline */}
           <h1 className="ap-hero-title">
-            Buy what you need.<br />
+            Buy with AI.<br />
             <span className="ap-hero-highlight">Sell to AI buyers.</span>
           </h1>
 
           {/* Supporting Subheading */}
           <p className="ap-hero-subtitle">
-            AgentPay connects AI buyers with AI-ready merchants, enabling product discovery,
-            policy-bounded purchasing, secure checkout and verified order execution.
+            "AgentPay connects autonomous AI buyers with AI-ready merchants, enabling product discovery, intelligent matching, policy-controlled checkout, payment authorization and verified order execution."
           </p>
 
           {/* Primary & Secondary CTAs */}
@@ -303,7 +306,7 @@ export default function Landing() {
               <div className="ap-quick-role-content">
                 <div className="ap-quick-role-title">Buy with AI</div>
                 <div className="ap-quick-role-desc">
-                  Tell AgentPay what you need. Your AI agent finds, evaluates and purchases it within your rules.
+                  Tell AgentPay what you need. Your agent finds the right product, evaluates it against your rules, and executes an authorized purchase.
                 </div>
               </div>
               <div className="ap-quick-role-arrow">
@@ -316,9 +319,9 @@ export default function Landing() {
                 <Icons.Store size={18} />
               </div>
               <div className="ap-quick-role-content">
-                <div className="ap-quick-role-title">Sell to AI</div>
+                <div className="ap-quick-role-title">Sell to AI buyers</div>
                 <div className="ap-quick-role-desc">
-                  Make your catalog AI-readable and transactable so autonomous buyers can discover and purchase your products.
+                  Make your catalog AI-readable and transactable so autonomous buyers can discover, evaluate and purchase your products.
                 </div>
               </div>
               <div className="ap-quick-role-arrow">
@@ -330,50 +333,50 @@ export default function Landing() {
       </section>
 
       {/* =========================================================================
-          3. ROLE SELECTION SECTION ("WHAT ARE YOU HERE TO DO?")
+          3. ROLE SELECTION SECTION ("HOW WILL YOU USE AGENTPAY?")
          ========================================================================= */}
       <section id="roles" className="ap-section ap-roles-section">
         <div className="ap-container">
           <div className="ap-section-header">
-            <div className="ap-section-overline">ROLE SELECTION</div>
+            <div className="ap-section-overline">TWO-SIDED PLATFORM</div>
             <h2 className="ap-section-title">WHAT ARE YOU HERE TO DO?</h2>
             <p className="ap-section-desc">
-              AgentPay strictly isolates buyer agent controls and merchant store operations into dedicated, secure environments.
+              AgentPay separates buyer agent controls and merchant store operations into dedicated, secure control planes.
             </p>
           </div>
 
           <div className="ap-roles-grid">
-            {/* BUYER CARD */}
+            {/* BUY WITH AI */}
             <div className="ap-role-card ap-role-buyer">
               <div className="ap-role-card-header">
                 <div className="ap-role-icon-box buyer-box">
                   <Icons.Sparkles size={24} />
                 </div>
-                <span className="ap-role-pill">BUYER AGENT WORKFLOW</span>
+                <span className="ap-role-pill">AI BUYER</span>
               </div>
 
               <div className="ap-role-body">
                 <h3 className="ap-role-headline">BUY WITH AI</h3>
                 <p className="ap-role-text">
-                  "Tell AgentPay what you need. Your AI agent finds, evaluates and purchases it within your rules."
+                  "Tell AgentPay what you need. Your agent finds the right product, evaluates it against your rules, and executes an authorized purchase."
                 </p>
 
                 <div className="ap-role-features">
                   <div className="ap-feature-item">
                     <span className="ap-check-icon"><Icons.Check size={14} /></span>
-                    <span>Natural language requirement matching</span>
+                    <span>Natural language requirement parsing</span>
                   </div>
                   <div className="ap-feature-item">
                     <span className="ap-check-icon"><Icons.Check size={14} /></span>
-                    <span>Server-side deterministic spending limits</span>
+                    <span>Server-side deterministic spending rules</span>
                   </div>
                   <div className="ap-feature-item">
                     <span className="ap-check-icon"><Icons.Check size={14} /></span>
-                    <span>Automated price surge & stock protection</span>
+                    <span>Price change protection & stock validation</span>
                   </div>
                   <div className="ap-feature-item">
                     <span className="ap-check-icon"><Icons.Check size={14} /></span>
-                    <span>One-click human review for edge cases</span>
+                    <span>1-click human review for edge cases</span>
                   </div>
                 </div>
               </div>
@@ -386,24 +389,24 @@ export default function Landing() {
                   Continue as Buyer →
                 </button>
                 <div className="ap-role-login-hint">
-                  Already have a buyer account? <button onClick={() => navigate('/login')}>Sign in</button>
+                  Already have an AI Buyer account? <button onClick={() => navigate('/login?role=BUYER')}>Sign in</button>
                 </div>
               </div>
             </div>
 
-            {/* MERCHANT CARD */}
+            {/* SELL TO AI */}
             <div className="ap-role-card ap-role-merchant">
               <div className="ap-role-card-header">
                 <div className="ap-role-icon-box merchant-box">
                   <Icons.Store size={24} />
                 </div>
-                <span className="ap-role-pill merchant-pill">MERCHANT STORE • TRACK 01</span>
+                <span className="ap-role-pill merchant-pill">AI MERCHANT • TRACK 01</span>
               </div>
 
               <div className="ap-role-body">
                 <h3 className="ap-role-headline">SELL TO AI</h3>
                 <p className="ap-role-text">
-                  "Make your catalog AI-readable and transactable so autonomous buyers can discover and purchase your products."
+                  "Make your catalog AI-readable and transactable so autonomous buyers can discover, evaluate and purchase your products."
                 </p>
 
                 <div className="ap-role-features">
@@ -413,7 +416,7 @@ export default function Landing() {
                   </div>
                   <div className="ap-feature-item">
                     <span className="ap-check-icon"><Icons.Check size={14} /></span>
-                    <span>Real-time inventory reservation quote locks</span>
+                    <span>Real-time inventory reservation locks</span>
                   </div>
                   <div className="ap-feature-item">
                     <span className="ap-check-icon"><Icons.Check size={14} /></span>
@@ -421,7 +424,7 @@ export default function Landing() {
                   </div>
                   <div className="ap-feature-item">
                     <span className="ap-check-icon"><Icons.Check size={14} /></span>
-                    <span>AI-originated revenue & conversion analytics</span>
+                    <span>AI-originated order & revenue attribution</span>
                   </div>
                 </div>
               </div>
@@ -434,7 +437,7 @@ export default function Landing() {
                   Continue as Merchant →
                 </button>
                 <div className="ap-role-login-hint">
-                  Already have a merchant store? <button onClick={() => navigate('/login')}>Sign in</button>
+                  Already have an AI Merchant store? <button onClick={() => navigate('/login?role=MERCHANT')}>Sign in</button>
                 </div>
               </div>
             </div>
@@ -446,30 +449,30 @@ export default function Landing() {
               <Icons.ShieldCheck size={18} />
             </div>
             <div className="ap-guarantee-text">
-              <strong>Strict Role-Based Tenant Isolation:</strong> Buyer accounts cannot access merchant store settings or order fulfillment ledgers. Merchant accounts cannot access private buyer agent policies or user payment methods. Role boundaries are validated at every API request.
+              <strong>Role-Based Tenant Isolation:</strong> Buyer accounts cannot access merchant store settings or order fulfillment ledgers. Merchant accounts cannot access private buyer agent policies. Role boundaries are validated at every API gateway request.
             </div>
           </div>
         </div>
       </section>
 
       {/* =========================================================================
-          4. BUYER VALUE SECTION ("YOUR AI PURCHASING AGENT")
+          4. BUYER FLOW SECTION
          ========================================================================= */}
       <section id="buyer-workflow" className="ap-section ap-buyer-section">
         <div className="ap-container">
           <div className="ap-section-header">
-            <div className="ap-section-overline">BUYER CAPABILITY</div>
+            <div className="ap-section-overline">BUYER FLOW</div>
             <h2 className="ap-section-title">YOUR AI PURCHASING AGENT</h2>
             <p className="ap-section-desc">
               "One request. Your rules. The agent handles the commerce workflow."
             </p>
           </div>
 
-          {/* 9-Step Pipeline Interactive Viewer */}
+          {/* 10-Step Interactive Pipeline */}
           <div className="ap-pipeline-card">
             <div className="ap-pipeline-header">
               <div className="ap-pipeline-title-group">
-                <span className="ap-tag">9-STAGE VERIFIED LIFECYCLE</span>
+                <span className="ap-tag">10-STAGE VERIFIED LIFECYCLE</span>
                 <span className="ap-pipeline-caption">
                   Every stage is evaluated deterministically before proceeding to execution.
                 </span>
@@ -527,7 +530,7 @@ export default function Landing() {
               </div>
             </div>
 
-            {/* Complete 9-Stage Flow List (Mobile & Scannable View) */}
+            {/* Scannable Step Progression Grid */}
             <div className="ap-flow-grid">
               {buyerSteps.map((step, idx) => (
                 <div
@@ -539,9 +542,6 @@ export default function Landing() {
                     <span className="ap-node-idx">{step.num}</span>
                     <span className="ap-node-name">{step.title}</span>
                   </div>
-                  {idx < buyerSteps.length - 1 && (
-                    <div className="ap-node-connector">↓</div>
-                  )}
                 </div>
               ))}
             </div>
@@ -550,36 +550,32 @@ export default function Landing() {
       </section>
 
       {/* =========================================================================
-          5. MERCHANT VALUE SECTION ("MAKE YOUR STORE READY FOR AI BUYERS")
-             PROMINENT TRACK 01 DEMONSTRATION
+          5. MERCHANT FLOW SECTION (TRACK 01 PROPOSITION)
          ========================================================================= */}
       <section id="merchant-solution" className="ap-section ap-merchant-section">
         <div className="ap-container">
           <div className="ap-track-banner">
-            <span className="ap-track-badge">TRACK 01 CORE OBJECTIVE</span>
+            <span className="ap-track-badge">TRACK 01: AI GROWTH & AGENTIC COMMERCE</span>
             <h3 className="ap-track-headline">
               "Grow the merchant's revenue, and make them sellable to AI buyers."
             </h3>
           </div>
 
           <div className="ap-section-header">
-            <div className="ap-section-overline">MERCHANT INFRASTRUCTURE</div>
+            <div className="ap-section-overline">MERCHANT FLOW</div>
             <h2 className="ap-section-title">MAKE YOUR STORE READY FOR AI BUYERS</h2>
             <p className="ap-section-desc">
-              "AgentPay turns your existing product catalog into an AI-readable and AI-transactable commerce experience."
+              AgentPay makes merchant catalogs AI-readable AND AI-transactable for autonomous AI buyers.
             </p>
           </div>
 
-          {/* 8-Stage Merchant Enablement Flow */}
+          {/* 9-Stage Merchant Enablement Flow */}
           <div className="ap-merchant-lifecycle-grid">
-            {merchantSteps.map((st, idx) => (
+            {merchantSteps.map((st) => (
               <div key={st.num} className="ap-merchant-step-card">
                 <div className="ap-merchant-step-num">{st.num}</div>
                 <h4 className="ap-merchant-step-title">{st.title}</h4>
                 <p className="ap-merchant-step-desc">{st.desc}</p>
-                {idx < merchantSteps.length - 1 && (
-                  <div className="ap-merchant-step-arrow">→</div>
-                )}
               </div>
             ))}
           </div>
@@ -591,25 +587,25 @@ export default function Landing() {
                 className={`ap-tab-btn ${activeMerchantTab === 'catalog' ? 'active' : ''}`}
                 onClick={() => setActiveMerchantTab('catalog')}
               >
-                <Icons.Code size={16} /> Structured AI Product Data
+                <Icons.Code size={16} /> Structured Product Data
               </button>
               <button
                 className={`ap-tab-btn ${activeMerchantTab === 'inventory' ? 'active' : ''}`}
                 onClick={() => setActiveMerchantTab('inventory')}
               >
-                <Icons.Package size={16} /> Real-Time Inventory Locks
+                <Icons.Package size={16} /> Inventory Availability
               </button>
               <button
                 className={`ap-tab-btn ${activeMerchantTab === 'checkout' ? 'active' : ''}`}
                 onClick={() => setActiveMerchantTab('checkout')}
               >
-                <Icons.Zap size={16} /> Machine-to-Machine Checkout
+                <Icons.Zap size={16} /> Machine Checkout
               </button>
               <button
                 className={`ap-tab-btn ${activeMerchantTab === 'analytics' ? 'active' : ''}`}
                 onClick={() => setActiveMerchantTab('analytics')}
               >
-                <Icons.Analytics size={16} /> AI Growth Analytics
+                <Icons.Analytics size={16} /> AI Discoverability & Orders
               </button>
             </div>
 
@@ -619,11 +615,11 @@ export default function Landing() {
                   <div className="ap-tab-text">
                     <h4>Structured Machine-Readable Catalog Specification</h4>
                     <p>
-                      Autonomous agents do not scrape messy HTML. AgentPay exposes clean, verified JSON-LD product specifications with strict SKU tags, pricing, specifications, and live stock flags.
+                      Autonomous agents do not scrape unstructured HTML. AgentPay transforms merchant inventories into machine-readable JSON-LD product specifications with strict SKU tags, pricing, specifications, and live stock flags.
                     </p>
                     <ul className="ap-bullet-list">
-                      <li>Semantic taxonomy matching across categories</li>
-                      <li>Deterministic attribute extraction (brand, model, specs)</li>
+                      <li>Semantic taxonomy matching across product categories</li>
+                      <li>Deterministic attribute extraction (brand, model, hardware specs)</li>
                       <li>Zero scraping overhead for connected merchants</li>
                     </ul>
                   </div>
@@ -658,9 +654,9 @@ export default function Landing() {
               {activeMerchantTab === 'inventory' && (
                 <div className="ap-tab-pane">
                   <div className="ap-tab-text">
-                    <h4>Atomic Inventory Reservation Locks</h4>
+                    <h4>Real-Time Inventory Reservation Quote Locks</h4>
                     <p>
-                      When an AI agent evaluates a purchase, AgentPay acquires an atomic reservation quote lock with a 15-minute TTL. Out-of-stock products can never be purchased, paid for, or shipped.
+                      When an AI agent evaluates a purchase, AgentPay acquires an atomic reservation quote lock. Out-of-stock products can never be purchased, paid for, or shipped.
                     </p>
                     <ul className="ap-bullet-list">
                       <li>Prevents double-booking across concurrent AI agents</li>
@@ -694,10 +690,10 @@ export default function Landing() {
                   <div className="ap-tab-text">
                     <h4>Direct Machine Checkout & Webhooks</h4>
                     <p>
-                      Eliminate shopping cart abandonment. AI buyers authorize and complete checkouts via authenticated API rails, with webhook notifications delivered to your order management system.
+                      AI buyers authorize and complete checkouts via authenticated API rails, with webhook notifications delivered directly into the merchant order fulfillment system.
                     </p>
                     <ul className="ap-bullet-list">
-                      <li>HMAC-SHA256 signature verification on all events</li>
+                      <li>HMAC-SHA256 signature verification on all webhook callbacks</li>
                       <li>Masked API credentials & zero-plaintext secret exposure</li>
                       <li>Standardized order payload matching canonical schemas</li>
                     </ul>
@@ -711,7 +707,7 @@ export default function Landing() {
 {`{
   "event": "order.created",
   "order_id": "ord_AGP_849201",
-  "origin": "AUTONOMOUS_AI_BUYER",
+  "origin": "AI_BUYER",
   "payment_status": "VERIFIED",
   "amount_paid": 8495.00,
   "currency": "INR",
@@ -729,32 +725,32 @@ export default function Landing() {
               {activeMerchantTab === 'analytics' && (
                 <div className="ap-tab-pane">
                   <div className="ap-tab-text">
-                    <h4>Single Source of Truth AI Growth Analytics</h4>
+                    <h4>Canonical AI Conversion & Revenue Attribution</h4>
                     <p>
                       Track real revenue generated by autonomous AI buyers. Metrics are computed directly from the canonical database ledger—never fake counters or estimated projections.
                     </p>
                     <ul className="ap-bullet-list">
                       <li>AI-Originated GMV & average order value (AOV)</li>
                       <li>AI Discovery to Conversion rate tracking</li>
-                      <li>Agent procurement volume & top purchasing agents</li>
+                      <li>Agent procurement volume & purchasing agent activity</li>
                     </ul>
                   </div>
-                  <div className="ap-metric-preview-grid">
-                    <div className="ap-metric-card">
-                      <span className="ap-metric-label">AI-Originated Revenue</span>
-                      <span className="ap-metric-value">₹3,42,850</span>
-                      <span className="ap-metric-sub">From 48 verified orders</span>
+                  <div className="ap-code-preview">
+                    <div className="ap-code-header">
+                      <span>GET /api/merchant/analytics</span>
+                      <span className="ap-code-lang">JSON</span>
                     </div>
-                    <div className="ap-metric-card">
-                      <span className="ap-metric-label">AI Conversion Rate</span>
-                      <span className="ap-metric-value">84.2%</span>
-                      <span className="ap-metric-sub">Discovery to Checkout</span>
-                    </div>
-                    <div className="ap-metric-card">
-                      <span className="ap-metric-label">Avg Order Value (AOV)</span>
-                      <span className="ap-metric-value">₹7,142</span>
-                      <span className="ap-metric-sub">Policy-bounded carts</span>
-                    </div>
+                    <pre className="ap-code-body">
+{`{
+  "source_of_truth": "CANONICAL_ORDERS_LEDGER",
+  "metrics": {
+    "ai_originated_revenue": "Computed dynamically from verified transactions",
+    "completed_orders": "Filtered by payment_status = 'VERIFIED'",
+    "conversion_rate": "Ratio of intent discovery to confirmed orders",
+    "attribution": "Direct AI agent channel tracking"
+  }
+}`}
+                    </pre>
                   </div>
                 </div>
               )}
@@ -789,7 +785,9 @@ export default function Landing() {
                 <div className="ap-arch-arrow">→</div>
                 <div className="ap-arch-step-box">Discovery</div>
                 <div className="ap-arch-arrow">→</div>
-                <div className="ap-arch-step-box">Evaluation</div>
+                <div className="ap-arch-step-box">Matching</div>
+                <div className="ap-arch-arrow">→</div>
+                <div className="ap-arch-step-box">Preferences</div>
                 <div className="ap-arch-arrow">→</div>
                 <div className="ap-arch-step-box">Policy</div>
                 <div className="ap-arch-arrow">→</div>
@@ -817,7 +815,7 @@ export default function Landing() {
                 </div>
                 <div className="ap-hub-item">
                   <Icons.CreditCard size={16} />
-                  <span>Razorpay Test Rails Adapter</span>
+                  <span>Payment Rails (Razorpay Test Provider)</span>
                 </div>
                 <div className="ap-hub-item">
                   <Icons.Lock size={16} />
@@ -837,18 +835,18 @@ export default function Landing() {
             <div className="ap-arch-tier ap-arch-merchant">
               <div className="ap-arch-tier-header">
                 <div className="ap-arch-tier-icon"><Icons.Store size={18} /></div>
-                <div className="ap-arch-tier-title">MERCHANT STORE DOMAIN</div>
+                <div className="ap-arch-tier-title">AI MERCHANT DOMAIN</div>
               </div>
               <div className="ap-arch-steps-row">
                 <div className="ap-arch-step-box">Catalog</div>
                 <div className="ap-arch-arrow">→</div>
-                <div className="ap-arch-step-box">Inventory</div>
+                <div className="ap-arch-step-box">Structured Data</div>
                 <div className="ap-arch-arrow">→</div>
-                <div className="ap-arch-step-box">Quote</div>
+                <div className="ap-arch-step-box">Discoverability</div>
+                <div className="ap-arch-arrow">→</div>
+                <div className="ap-arch-step-box">Quotes</div>
                 <div className="ap-arch-arrow">→</div>
                 <div className="ap-arch-step-box">Checkout</div>
-                <div className="ap-arch-arrow">→</div>
-                <div className="ap-arch-step-box">Order</div>
                 <div className="ap-arch-arrow">→</div>
                 <div className="ap-arch-step-box">Fulfillment</div>
               </div>
@@ -863,28 +861,28 @@ export default function Landing() {
       <section id="trust-safety" className="ap-section ap-trust-section">
         <div className="ap-container">
           <div className="ap-section-header">
-            <div className="ap-section-overline">FINANCIAL & TRANSACTION INTEGRITY</div>
-            <h2 className="ap-section-title">BUILT FOR CONTROLLED AUTONOMOUS COMMERCE</h2>
+            <div className="ap-section-overline">GOVERNANCE & SAFETY</div>
+            <h2 className="ap-section-title">CONTROLLED AUTONOMOUS COMMERCE</h2>
             <p className="ap-section-desc">
               AI recommendations are not payment authorization. AgentPay enforces deterministic server-side guards at every stage.
             </p>
           </div>
 
-          {/* 4 Core Pillars */}
-          <div className="ap-principles-grid">
+          {/* 5 Core Pillars */}
+          <div className="ap-principles-grid ap-5-pillars-grid">
             <div className="ap-principle-card">
               <div className="ap-principle-number">01</div>
               <h4 className="ap-principle-title">AI proposes.</h4>
               <p className="ap-principle-desc">
-                LLMs parse procurement intent and recommend candidate products. The AI agent never possesses direct payment authority, bank credentials, or unconstrained spending ability.
+                LLMs parse procurement intent and recommend candidate products. The AI agent never possesses direct payment authority or credentials.
               </p>
             </div>
 
             <div className="ap-principle-card">
               <div className="ap-principle-number">02</div>
-              <h4 className="ap-principle-title">Your policies decide.</h4>
+              <h4 className="ap-principle-title">Policies constrain.</h4>
               <p className="ap-principle-desc">
-                Deterministic spending limits, per-transaction ceilings, category constraints, and risk score thresholds evaluate strictly server-side before any checkout session begins.
+                Deterministic spending limits, per-transaction ceilings, category constraints, and risk score thresholds evaluate strictly server-side.
               </p>
             </div>
 
@@ -892,77 +890,92 @@ export default function Landing() {
               <div className="ap-principle-number">03</div>
               <h4 className="ap-principle-title">AgentPay verifies.</h4>
               <p className="ap-principle-desc">
-                Live catalog pricing is revalidated against surge thresholds (max 5% drift), and real-time inventory reservation locks verify physical stock availability before execution.
+                Live catalog pricing is revalidated against surge limits and atomic reservation locks verify real physical stock availability.
               </p>
             </div>
 
             <div className="ap-principle-card">
               <div className="ap-principle-number">04</div>
-              <h4 className="ap-principle-title">Payment executes only after authorization.</h4>
+              <h4 className="ap-principle-title">Payment executes.</h4>
               <p className="ap-principle-desc">
-                Payment orders run through Razorpay rails with cryptographic HMAC-SHA256 signature verification. State machine transitions lock each state irrevocably.
+                Payment orders run through Razorpay rails with cryptographic HMAC-SHA256 signature verification and irreversible state machine transitions.
+              </p>
+            </div>
+
+            <div className="ap-principle-card">
+              <div className="ap-principle-number">05</div>
+              <h4 className="ap-principle-title">Merchants fulfill.</h4>
+              <p className="ap-principle-desc">
+                Orders dispatch into merchant fulfillment systems with verified payment status, automated invoice generation, and courier tracking.
               </p>
             </div>
           </div>
 
-          {/* 8 Verified Platform Capabilities */}
+          {/* 9 Verified Platform Capabilities Grid */}
           <div className="ap-capabilities-panel">
             <h4 className="ap-capabilities-title">Active Backend Capabilities</h4>
             <div className="ap-capabilities-grid">
               <div className="ap-cap-item">
                 <Icons.ShieldCheck size={16} />
                 <div>
-                  <strong>Price Revalidation</strong>
-                  <span>Max 5% surge tolerance before mandatory block</span>
-                </div>
-              </div>
-              <div className="ap-cap-item">
-                <Icons.Package size={16} />
-                <div>
-                  <strong>Inventory Locks</strong>
-                  <span>Atomic quote reservations with TTL expiry</span>
+                  <strong>Server-side authorization</strong>
+                  <span>Deterministic spending limits evaluated on server</span>
                 </div>
               </div>
               <div className="ap-cap-item">
                 <Icons.Sliders size={16} />
                 <div>
-                  <strong>Server-Side Policy Gate</strong>
-                  <span>Deterministic budget caps & category rules</span>
+                  <strong>Deterministic spending rules</strong>
+                  <span>Per-transaction caps, daily limits, category rules</span>
+                </div>
+              </div>
+              <div className="ap-cap-item">
+                <Icons.Activity size={16} />
+                <div>
+                  <strong>Price revalidation</strong>
+                  <span>PRICE CHANGE PROTECTION before checkout execution</span>
+                </div>
+              </div>
+              <div className="ap-cap-item">
+                <Icons.Package size={16} />
+                <div>
+                  <strong>Inventory validation</strong>
+                  <span>Atomic quote reservations with TTL expiry locks</span>
+                </div>
+              </div>
+              <div className="ap-cap-item">
+                <Icons.ShieldAlert size={16} />
+                <div>
+                  <strong>Risk evaluation</strong>
+                  <span>Multi-factor explainable risk scoring</span>
                 </div>
               </div>
               <div className="ap-cap-item">
                 <Icons.Lock size={16} />
                 <div>
-                  <strong>Cryptographic Verification</strong>
-                  <span>HMAC-SHA256 signatures on payment callbacks</span>
+                  <strong>Payment verification</strong>
+                  <span>Cryptographic HMAC-SHA256 signature validation</span>
                 </div>
               </div>
               <div className="ap-cap-item">
                 <Icons.Key size={16} />
                 <div>
-                  <strong>Webhook Security</strong>
-                  <span>Masked credentials & timing-safe signature check</span>
+                  <strong>Webhook verification</strong>
+                  <span>Timing-safe signatures & masked credential storage</span>
                 </div>
               </div>
               <div className="ap-cap-item">
                 <Icons.RefreshCw size={16} />
                 <div>
-                  <strong>Transaction Idempotency</strong>
+                  <strong>Idempotency</strong>
                   <span>Redis & DB SHA-256 idempotency locks</span>
                 </div>
               </div>
               <div className="ap-cap-item">
                 <Icons.FileText size={16} />
                 <div>
-                  <strong>Immutable Audit Trail</strong>
-                  <span>Event-sourced audit logs for every state change</span>
-                </div>
-              </div>
-              <div className="ap-cap-item">
-                <Icons.AlertTriangle size={16} />
-                <div>
-                  <strong>Emergency Kill Switch</strong>
-                  <span>Platform-wide instant freeze for autonomous flows</span>
+                  <strong>Audit trail</strong>
+                  <span>Event-sourced audit logs for every state transition</span>
                 </div>
               </div>
             </div>
@@ -981,12 +994,12 @@ export default function Landing() {
               <h3 className="ap-track-box-title">BUILT FOR THE NEXT ERA OF COMMERCE</h3>
             </div>
             <p className="ap-track-box-text">
-              "AgentPay makes merchants discoverable and transactable by autonomous AI buyers while giving buyers bounded, auditable control over every purchase."
+              "AgentPay connects autonomous AI buyers with AI-ready merchants, enabling product discovery, intelligent matching, policy-controlled checkout, payment authorization and verified order execution."
             </p>
             <div className="ap-environment-disclosure">
               <Icons.Info size={16} />
               <span>
-                <strong>Sandbox Demonstration Environment:</strong> AgentPay currently operates on Razorpay Test Rails with isolated test merchant catalogs for Track 01 evaluation. Live production money settlement is disabled by default to ensure safe, repeatable demonstrations.
+                <strong>Sandbox Demonstration Disclosure:</strong> Payment environment: Razorpay Test Mode • Sandbox Settlement • No real money is moved in this environment. Live autonomous commerce mode is strictly bounded for Track 01 technical evaluation.
               </span>
             </div>
           </div>
@@ -999,22 +1012,22 @@ export default function Landing() {
       <section className="ap-bottom-cta">
         <div className="ap-container">
           <div className="ap-bottom-cta-card">
-            <h2 className="ap-bottom-cta-title">Ready to experience agentic commerce?</h2>
+            <h2 className="ap-bottom-cta-title">The commerce layer for AI agents.</h2>
             <p className="ap-bottom-cta-desc">
-              Choose your role and explore autonomous procurement with deterministic spending controls.
+              Choose your role and experience autonomous commerce with deterministic policy gates.
             </p>
             <div className="ap-bottom-cta-buttons">
               <button
                 className="ap-btn ap-btn-primary ap-btn-lg"
                 onClick={() => handleSelectRole('BUYER')}
               >
-                Get Started as Buyer →
+                Continue as Buyer →
               </button>
               <button
                 className="ap-btn ap-btn-outline ap-btn-lg"
                 onClick={() => handleSelectRole('MERCHANT')}
               >
-                Get Started as Merchant →
+                Continue as Merchant →
               </button>
             </div>
           </div>
@@ -1030,7 +1043,7 @@ export default function Landing() {
             <div className="ap-brand-badge">AP</div>
             <span className="ap-brand-name">AgentPay</span>
             <p className="ap-footer-tagline">
-              The commerce layer for AI agents. Grow merchant revenue, and make them sellable to AI buyers.
+              The commerce layer for AI agents. Buy with AI. Sell to AI buyers.
             </p>
             <div className="ap-footer-status">
               <span className="ap-status-dot" />
@@ -1039,38 +1052,38 @@ export default function Landing() {
           </div>
 
           <div className="ap-footer-nav-col">
-            <h5 className="ap-footer-col-title">Buyer Interface</h5>
+            <h5 className="ap-footer-col-title">AI Buyer</h5>
             <button className="ap-footer-link" onClick={() => handleSelectRole('BUYER')}>
               Buyer Registration
             </button>
-            <button className="ap-footer-link" onClick={() => navigate('/login')}>
+            <button className="ap-footer-link" onClick={() => navigate('/login?role=BUYER')}>
               Buyer Sign In
             </button>
             <button className="ap-footer-link" onClick={() => scrollToSection('buyer-workflow')}>
-              9-Stage Workflow
+              Buyer Procurement Flow
             </button>
           </div>
 
           <div className="ap-footer-nav-col">
-            <h5 className="ap-footer-col-title">Merchant Store</h5>
+            <h5 className="ap-footer-col-title">AI Merchant</h5>
             <button className="ap-footer-link" onClick={() => handleSelectRole('MERCHANT')}>
               Merchant Registration
             </button>
-            <button className="ap-footer-link" onClick={() => navigate('/login')}>
+            <button className="ap-footer-link" onClick={() => navigate('/login?role=MERCHANT')}>
               Merchant Sign In
             </button>
             <button className="ap-footer-link" onClick={() => scrollToSection('merchant-solution')}>
-              Track 01 Enablement
+              Merchant Enablement Flow
             </button>
           </div>
 
           <div className="ap-footer-nav-col">
-            <h5 className="ap-footer-col-title">Architecture & Security</h5>
+            <h5 className="ap-footer-col-title">Architecture & Governance</h5>
             <button className="ap-footer-link" onClick={() => scrollToSection('architecture')}>
               Two-Sided Architecture
             </button>
             <button className="ap-footer-link" onClick={() => scrollToSection('trust-safety')}>
-              Trust & Safety
+              Controlled Autonomous Commerce
             </button>
             <button className="ap-footer-link" onClick={() => navigate('/login')}>
               System Status
@@ -1081,7 +1094,7 @@ export default function Landing() {
         <div className="ap-footer-bottom">
           <div className="ap-container ap-footer-bottom-inner">
             <span>© {new Date().getFullYear()} AgentPay. Track 01: AI Growth & Agentic Commerce.</span>
-            <span>Deterministic AI Commerce Infrastructure</span>
+            <span>Deterministic Autonomous Commerce Infrastructure</span>
           </div>
         </div>
       </footer>
