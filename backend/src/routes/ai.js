@@ -298,9 +298,16 @@ router.post('/chat', async (req, res, next) => {
       return res.status(400).json({ error: 'message is required' });
     }
 
-    let finalUserId = getUserIdFromRequest(req) || user_id;
+    const authUserId = getUserIdFromRequest(req);
+    let finalUserId = authUserId;
     if (!finalUserId) {
-      const defaultUserRes = await query('SELECT id FROM users LIMIT 1');
+      if (user_id) {
+        const uCheck = await query('SELECT id FROM users WHERE id::text = $1', [user_id]);
+        if (uCheck.rows.length > 0) finalUserId = uCheck.rows[0].id;
+      }
+    }
+    if (!finalUserId) {
+      const defaultUserRes = await query("SELECT id FROM users WHERE role = 'BUYER' OR role = 'user' LIMIT 1");
       finalUserId = defaultUserRes.rows[0]?.id;
     }
 
@@ -341,7 +348,7 @@ router.post('/chat', async (req, res, next) => {
     const maxBudget = parsedIntent.maxPrice;
 
     // 4. Find Eligible Candidates (Strict Hard Filtering, NO Fallback)
-    const matchResult = await findEligibleProducts(parsedIntent, { limit: 10 });
+    const matchResult = await findEligibleProducts(parsedIntent, { userId: finalUserId, limit: 10 });
 
     if (matchResult.status === 'NO_MATCH' || !matchResult.winningCandidate) {
       return res.json({

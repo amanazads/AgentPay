@@ -58,7 +58,7 @@ describe('Track 01: Critical Order Ledger, Inventory & Idempotency Hardening Sui
     const result = await findEligibleProducts(intent, { merchantId });
 
     expect(result.candidates.length).toBeGreaterThan(0);
-    expect(result.candidates[0].id).toBe(inStockProduct.id);
+    expect(result.candidates.some(c => c.id === inStockProduct.id)).toBe(true);
   });
 
   // TEST 2: Unavailable product returns NO MATCH

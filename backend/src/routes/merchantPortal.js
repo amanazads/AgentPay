@@ -51,7 +51,24 @@ router.get('/overview', async (req, res, next) => {
     const storeRes = await query('SELECT * FROM merchants WHERE id = $1', [merchantId]);
     const store = storeRes.rows[0];
 
-    // 1. Fetch authoritative active orders for this merchant (excluding voided test duplicates)
+    if (!store) {
+      return res.json({
+        hasStore: false,
+        store: null,
+        metrics: {
+          aiOrdersCount: 0,
+          aiRevenue: 0,
+          aiConversionRate: 0,
+          aov: 0,
+          aiReadableProducts: 0,
+          aiPurchasableProducts: 0,
+          outOfStockProducts: 0,
+          catalogHealth: 'Store not created yet',
+        },
+        topProducts: [],
+        recentOrders: [],
+      });
+    }
     const activeOrdersRes = await query(`
       SELECT o.id,
              o.order_number,
@@ -1076,6 +1093,8 @@ router.get('/orders', async (req, res, next) => {
       sku: o.product_sku,
       brand: o.product_brand || 'Store Catalog',
       category: o.product_category || 'General',
+      merchantId,
+      merchant_id: merchantId,
       amount: parseFloat(o.total_amount) || 0,
       unitPrice: parseFloat(o.unit_price) || parseFloat(o.total_amount) || 0,
       quantity: o.quantity || 1,

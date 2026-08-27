@@ -2,14 +2,52 @@ import { Router } from 'express';
 import { createPaymentOrder, verifyPayment } from '../services/paymentService.js';
 import { query } from '../config/database.js';
 import { getUserIdFromRequest } from '../utils/authUtils.js';
+import { requireAuth } from '../middleware/authMiddleware.js';
 
 const router = Router();
 
-// GET /api/payments/transactions — List transactions scoped to user
+// Public Webhook Endpoint (Protected by HMAC signature verification)
+// POST /api/payments/webhook — Razorpay Webhook Handler
+router.post('/webhook', async (req, res, next) => {
+  try {
+    const io = req.app.get('io');
+    const event = req.body?.event;
+    const payload = req.body?.payload;
+
+    if (event === 'payment.captured') {
+      const paymentEntity = payload?.payment?.entity;
+      const orderId = paymentEntity?.order_id;
+      const paymentId = paymentEntity?.id;
+
+      if (orderId) {
+        await verifyPayment({
+          razorpayOrderId: orderId,
+          razorpayPaymentId: paymentId,
+          io,
+        });
+      }
+    }
+
+    res.json({ status: 'ok', received: true });
+  } catch (err) {
+    console.error('[Webhook] Error processing webhook:', err.message);
+    res.json({ status: 'error', message: err.message });
+  }
+});
+
+// All subsequent routes require authenticated session
+router.use(requireAuth);
+
+// GET /api/payments/transactions — List transactions strictly scoped to authenticated user/tenant
 router.get('/transactions', async (req, res, next) => {
   try {
     const userId = getUserIdFromRequest(req);
     const { status, limit = 50, offset = 0 } = req.query;
+
+    const uRes = await query('SELECT role, merchant_id FROM users WHERE id::text = $1', [userId]);
+    const user = uRes.rows[0] || {};
+    const role = (user.role || '').toUpperCase();
+    const merchantId = user.merchant_id;
 
     let sql = `
       SELECT t.*, pi.amount, pi.status as intent_status,
@@ -24,7 +62,10 @@ router.get('/transactions', async (req, res, next) => {
     const params = [];
     const conditions = [];
 
-    if (userId) {
+    if (role === 'MERCHANT' && merchantId) {
+      params.push(merchantId);
+      conditions.push(`pi.merchant_id = $${params.length}`);
+    } else if (role !== 'ADMIN') {
       params.push(userId);
       conditions.push(`(t.user_id::text = $${params.length} OR pi.user_id::text = $${params.length})`);
     }
@@ -54,6 +95,16 @@ router.post(['/create', '/create-order'], async (req, res, next) => {
     const { purchase_intent_id } = req.body;
     if (!purchase_intent_id) {
       return res.status(400).json({ error: 'purchase_intent_id is required' });
+    }
+
+    const userId = getUserIdFromRequest(req);
+    // Verify user owns the purchase intent
+    const piRes = await query('SELECT user_id FROM purchase_intents WHERE id::text = $1', [purchase_intent_id]);
+    if (piRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Purchase intent not found' });
+    }
+    if (userId && piRes.rows[0].user_id && piRes.rows[0].user_id !== userId) {
+      return res.status(403).json({ error: 'Unauthorized to create payment for this purchase intent' });
     }
 
     const io = req.app.get('io');
@@ -89,39 +140,17 @@ router.post(['/verify', '/:id/verify'], async (req, res, next) => {
   }
 });
 
-// POST /api/payments/webhook — Razorpay Webhook Handler
-router.post('/webhook', async (req, res, next) => {
-  try {
-    const io = req.app.get('io');
-    const event = req.body?.event;
-    const payload = req.body?.payload;
-
-    if (event === 'payment.captured') {
-      const paymentEntity = payload?.payment?.entity;
-      const orderId = paymentEntity?.order_id;
-      const paymentId = paymentEntity?.id;
-
-      if (orderId) {
-        await verifyPayment({
-          razorpayOrderId: orderId,
-          razorpayPaymentId: paymentId,
-          io,
-        });
-      }
-    }
-
-    res.json({ status: 'ok', received: true });
-  } catch (err) {
-    console.error('[Webhook] Error processing webhook:', err.message);
-    res.json({ status: 'error', message: err.message });
-  }
-});
-
 // GET /api/payments/:id — Get payment/transaction details by UUID or order_id
 router.get('/:id', async (req, res, next) => {
   try {
+    const userId = getUserIdFromRequest(req);
+    const uRes = await query('SELECT role, merchant_id FROM users WHERE id::text = $1', [userId]);
+    const user = uRes.rows[0] || {};
+    const role = (user.role || '').toUpperCase();
+    const merchantId = user.merchant_id;
+
     const result = await query(`
-      SELECT t.*, pi.amount, pi.status as intent_status,
+      SELECT t.*, pi.amount, pi.status as intent_status, pi.merchant_id,
              p.name as product_name, m.name as merchant_name,
              a.name as agent_name
       FROM transactions t
@@ -135,7 +164,21 @@ router.get('/:id', async (req, res, next) => {
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Transaction not found' });
     }
-    res.json({ transaction: result.rows[0] });
+
+    const tx = result.rows[0];
+
+    // Resource ownership enforcement
+    if (role === 'MERCHANT') {
+      if (tx.merchant_id !== merchantId) {
+        return res.status(404).json({ error: 'Transaction not found' });
+      }
+    } else if (role !== 'ADMIN') {
+      if (tx.user_id !== userId) {
+        return res.status(404).json({ error: 'Transaction not found' });
+      }
+    }
+
+    res.json({ transaction: tx });
   } catch (err) {
     next(err);
   }

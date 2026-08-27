@@ -297,14 +297,18 @@ export async function transitionOrderFulfillment(orderId, targetStatus, { mercha
 
   const order = currentRes.rows[0];
   if (merchantId && order.merchant_id !== merchantId) {
-    throw new Error('Unauthorized: You can only advance fulfillment for your own merchant orders.');
+    const err = new Error('Unauthorized: You can only advance fulfillment for your own merchant orders.');
+    err.status = 403;
+    throw err;
   }
 
   const currentStatus = order.fulfillment_status || order.order_status || 'CONFIRMED';
   const allowed = ALLOWED_FULFILLMENT_TRANSITIONS[currentStatus] || [];
 
   if (!allowed.includes(targetStatus) && currentStatus !== targetStatus) {
-    throw new Error(`Invalid fulfillment transition from '${currentStatus}' to '${targetStatus}'. Allowed transitions: ${allowed.join(', ') || 'None'}`);
+    const err = new Error(`Invalid fulfillment transition from '${currentStatus}' to '${targetStatus}'. Allowed transitions: ${allowed.join(', ') || 'None'}`);
+    err.status = 400;
+    throw err;
   }
 
   const now = new Date().toISOString();

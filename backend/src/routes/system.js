@@ -318,10 +318,16 @@ router.post('/reconcile-orders', async (req, res, next) => {
  * GET /api/system/reconciliation-report
  * Get latest reconciliation diagnostics without mutations
  */
-router.get('/reconciliation-report', async (req, res, next) => {
+/**
+ * POST /api/system/reset-demo & /judge-reset
+ * Reset demonstration ledger to pristine state for live technical evaluation
+ */
+router.post(['/reset-demo', '/judge-reset'], async (req, res, next) => {
   try {
-    const report = await reconcileOrders({ autoHeal: false });
-    res.json(report);
+    const io = req.app.get('io');
+    const { resetDemoData } = await import('../services/demoResetService.js');
+    const result = await resetDemoData(io);
+    res.json(result);
   } catch (err) {
     next(err);
   }

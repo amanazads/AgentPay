@@ -1,4 +1,4 @@
-import { query } from '../config/database.js';
+import { getClient, query } from '../config/database.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -13,54 +13,64 @@ export async function reserveInventory({
   durationMinutes = 15,
 }) {
   const expiresAt = new Date(Date.now() + durationMinutes * 60 * 1000).toISOString();
+  const client = await getClient();
 
-  // 1. Lock product row with FOR UPDATE
-  const prodRes = await query(`
-    SELECT id, name, inventory, in_stock
-    FROM products
-    WHERE id = $1
-    FOR UPDATE
-  `, [productId]);
+  try {
+    await client.query('BEGIN');
 
-  if (prodRes.rows.length === 0) {
-    throw new Error(`Product ${productId} not found`);
+    // Lock the product and reservation calculation in the same transaction.
+    const prodRes = await client.query(`
+      SELECT id, name, inventory, in_stock
+      FROM products
+      WHERE id = $1
+      FOR UPDATE
+    `, [productId]);
+
+    if (prodRes.rows.length === 0) {
+      throw new Error(`Product ${productId} not found`);
+    }
+
+    const product = prodRes.rows[0];
+
+    const resRes = await client.query(`
+      SELECT COALESCE(SUM(quantity), 0) as reserved_qty
+      FROM inventory_reservations
+      WHERE product_id = $1 AND status = 'RESERVED' AND expires_at > NOW()
+    `, [productId]);
+
+    const reservedQty = parseInt(resRes.rows[0]?.reserved_qty || 0, 10);
+    const currentAvailable = (product.inventory || 0) - reservedQty;
+
+    if (!product.in_stock || currentAvailable < quantity) {
+      throw new Error(`Insufficient inventory: ${quantity} requested, but only ${Math.max(0, currentAvailable)} units available`);
+    }
+
+    const res = await client.query(`
+      INSERT INTO inventory_reservations (
+        product_id, quantity, user_id, quote_id, status, expires_at
+      )
+      VALUES ($1, $2, $3, $4, 'RESERVED', $5)
+      RETURNING *
+    `, [productId, quantity, userId, quoteId, expiresAt]);
+
+    await client.query('COMMIT');
+
+    const reservation = res.rows[0];
+    logger.info('Inventory', `Reserved ${quantity} units of ${product.name} (Quote: ${quoteId || reservation.id}) until ${expiresAt}`);
+
+    return {
+      reservationId: reservation.id,
+      productId,
+      quantity,
+      status: 'RESERVED',
+      expiresAt,
+    };
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
   }
-
-  const product = prodRes.rows[0];
-
-  // 2. Fetch active reserved quantities
-  const resRes = await query(`
-    SELECT COALESCE(SUM(quantity), 0) as reserved_qty
-    FROM inventory_reservations
-    WHERE product_id = $1 AND status = 'RESERVED' AND expires_at > NOW()
-  `, [productId]);
-
-  const reservedQty = parseInt(resRes.rows[0]?.reserved_qty || 0, 10);
-  const currentAvailable = (product.inventory || 0) - reservedQty;
-
-  if (!product.in_stock || currentAvailable < quantity) {
-    throw new Error(`Insufficient inventory: ${quantity} requested, but only ${Math.max(0, currentAvailable)} units available`);
-  }
-
-  // 2. Insert reservation record
-  const res = await query(`
-    INSERT INTO inventory_reservations (
-      product_id, quantity, user_id, quote_id, status, expires_at
-    )
-    VALUES ($1, $2, $3, $4, 'RESERVED', $5)
-    RETURNING *
-  `, [productId, quantity, userId, quoteId, expiresAt]);
-
-  const reservation = res.rows[0];
-  logger.info('Inventory', `Reserved ${quantity} units of ${product.name} (Quote: ${quoteId || reservation.id}) until ${expiresAt}`);
-
-  return {
-    reservationId: reservation.id,
-    productId,
-    quantity,
-    status: 'RESERVED',
-    expiresAt,
-  };
 }
 
 /**

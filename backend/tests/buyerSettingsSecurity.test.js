@@ -122,6 +122,7 @@ describe('Track 01: Buyer Settings, Identity & Security Controls Hardening Suite
       productId: testProduct.id,
       merchantId: testMerchantId,
       amount: parseFloat(testProduct.price),
+      idempotencyKey: `sec_test_revoke_key_${Date.now()}`,
     });
 
     expect(evalResult.decision).toBe('BLOCK');

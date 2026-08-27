@@ -121,7 +121,7 @@ export function parseBuyerIntent(queryText) {
 
   // 3. Extract Quantity (e.g. "Order 5 chairs", "buy 2 laptops")
   let quantity = 1;
-  const qtyMatch = lower.match(/(?:order|buy|purchase|get|find)\s+(\d+)\s+/i);
+  const qtyMatch = lower.match(/(?:^|\b(?:order|buy|purchase|get|find)\s+)(\d+)\s+/i);
   if (qtyMatch) {
     const q = parseInt(qtyMatch[1]);
     if (!isNaN(q) && q > 0) quantity = q;
@@ -131,9 +131,9 @@ export function parseBuyerIntent(queryText) {
   const hardConstraints = {};
 
   // Capacity (e.g. "20000mAh", "20,000 mah", "24000 mah")
-  const capacityMatch = lower.match(/(\d{4,6})\s*(?:mah|milliamp)/i);
+  const capacityMatch = lower.match(/(\d[\d,]{3,7})\s*(?:mah|milliamp)/i);
   if (capacityMatch) {
-    hardConstraints.requiredCapacityMah = parseInt(capacityMatch[1]);
+    hardConstraints.requiredCapacityMah = parseInt(capacityMatch[1].replace(/,/g, ''));
   }
 
   // RAM (e.g. "16GB RAM", "32 GB", "64gb")
@@ -168,7 +168,9 @@ export function parseBuyerIntent(queryText) {
 
   // Brand Match
   for (const b of KNOWN_BRANDS) {
-    if (lower.includes(b.toLowerCase())) {
+    const escapedBrand = b.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const brandPattern = new RegExp(`(^|[^a-z0-9])${escapedBrand}([^a-z0-9]|$)`, 'i');
+    if (brandPattern.test(lower)) {
       hardConstraints.requiredBrand = b;
       break;
     }

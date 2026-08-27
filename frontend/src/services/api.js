@@ -125,6 +125,7 @@ export const api = {
     request('/api/simulations/run', { method: 'POST', body: { cases } }),
   runSecurityScenario: (scenarioId) =>
     request(`/api/security-tests/${scenarioId}`, { method: 'POST' }),
+  resetDemo: () => request('/api/system/reset-demo', { method: 'POST' }),
   // AI Commerce Interactive Demonstration Suite
   getDemoCommerceData: () => request('/api/ai-commerce/demo-data'),
   executeAICommerceDemo: (params = {}) =>
