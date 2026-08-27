@@ -4,6 +4,7 @@ import env from '../config/env.js';
 import { getRedisClient } from '../config/redis.js';
 import { recordAuditEvent } from '../services/auditService.js';
 import { reconcileOrders } from '../services/reconciliationService.js';
+import { requireAdmin, requireAuth } from '../middleware/authMiddleware.js';
 
 const router = Router();
 
@@ -259,8 +260,8 @@ router.get('/status', async (req, res) => {
   }
 });
 
-// POST /api/system/kill-switch — Emergency freeze
-router.post('/kill-switch', async (req, res, next) => {
+// POST /api/system/kill-switch — Emergency freeze (Admin only)
+router.post('/kill-switch', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const { active, reason } = req.body;
     const io = req.app.get('io');
@@ -304,7 +305,7 @@ router.post('/kill-switch', async (req, res, next) => {
  * POST /api/system/reconcile-orders
  * Run automated multi-point cross-system order state reconciliation
  */
-router.post('/reconcile-orders', async (req, res, next) => {
+router.post('/reconcile-orders', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const { autoHeal = true } = req.body || {};
     const report = await reconcileOrders({ autoHeal });
@@ -322,7 +323,7 @@ router.post('/reconcile-orders', async (req, res, next) => {
  * POST /api/system/reset-demo & /judge-reset
  * Reset demonstration ledger to pristine state for live technical evaluation
  */
-router.post(['/reset-demo', '/judge-reset'], async (req, res, next) => {
+router.post(['/reset-demo', '/judge-reset'], requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const io = req.app.get('io');
     const { resetDemoData } = await import('../services/demoResetService.js');
