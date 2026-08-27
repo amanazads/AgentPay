@@ -12,6 +12,7 @@ describe('Track 01: Final Release Hardening & Evaluation Suite', () => {
   let merchantAToken;
   let merchantBToken;
   let buyerToken;
+  let adminToken;
   let merchantAId;
   let merchantBId;
 
@@ -58,6 +59,12 @@ describe('Track 01: Final Release Hardening & Evaluation Suite', () => {
     const bRes = await query("SELECT * FROM users WHERE role = 'BUYER' OR role = 'user' LIMIT 1");
     buyerUser = bRes.rows[0];
     buyerToken = generateAccessToken(buyerUser);
+    adminToken = generateAccessToken({
+      id: buyerUser.id,
+      email: buyerUser.email,
+      name: 'Release Admin',
+      role: 'ADMIN',
+    });
   });
 
   // TEST 1: Intent Parser with Comma-separated Capacities and Quantities
@@ -126,10 +133,14 @@ describe('Track 01: Final Release Hardening & Evaluation Suite', () => {
     const pRes = await query("SELECT id FROM products WHERE merchant_id = $1 AND in_stock = true LIMIT 1", [merchantAId]);
     const simRes = await request(app)
       .post('/api/ai-commerce/simulate-price-change')
+      .set('Authorization', `Bearer ${adminToken}`)
       .send({ productId: pRes.rows[0].id });
 
     expect(simRes.status).toBe(200);
     expect(simRes.body.decision).toBe('BLOCK');
+    expect(simRes.body.paymentAttempted).toBe(false);
+    expect(simRes.body.orderCreated).toBe(false);
+    expect(simRes.body.auditEvent).toBe('PRICE_SURGE_DETECTED');
     expect(simRes.body.paymentStatus).toContain('NOT ATTEMPTED');
     expect(simRes.body.orderStatus).toBe('NOT CREATED');
   });
@@ -156,7 +167,7 @@ describe('Track 01: Final Release Hardening & Evaluation Suite', () => {
   it('TEST 8: POST /api/system/reset-demo restores clean judge state (0 orders, ₹0 spent)', async () => {
     const resetRes = await request(app)
       .post('/api/system/reset-demo')
-      .set('Authorization', `Bearer ${merchantAToken}`);
+      .set('Authorization', `Bearer ${adminToken}`);
 
     expect(resetRes.status).toBe(200);
     expect(resetRes.body.success).toBe(true);

@@ -341,7 +341,7 @@ export default function MerchantOverview() {
               </div>
               <h3 style={{ margin: '0 0 0.25rem 0', fontSize: '1rem', color: 'var(--text-main)', fontWeight: 600 }}>No AI orders received yet</h3>
               <p style={{ margin: 0, color: 'var(--text-subtle)', fontSize: '0.875rem' }}>
-                Once an AI buyer purchases from your store, orders and settlements will stream here in real time.
+                Once an AI buyer purchases from your store, test-mode orders and payment verification events will stream here.
               </p>
               <div style={{ marginTop: '1rem' }}>
                 <Button size="sm" variant="primary" onClick={() => navigate('/merchant/ai-commerce')} icon={<Icons.Sparkles size={14} />}>

@@ -3,6 +3,7 @@ import { createPaymentOrder, verifyPayment } from '../services/paymentService.js
 import { query } from '../config/database.js';
 import { getUserIdFromRequest } from '../utils/authUtils.js';
 import { requireAuth } from '../middleware/authMiddleware.js';
+import { processRazorpayWebhook } from '../services/webhookService.js';
 
 const router = Router();
 
@@ -11,24 +12,17 @@ const router = Router();
 router.post('/webhook', async (req, res, next) => {
   try {
     const io = req.app.get('io');
-    const event = req.body?.event;
-    const payload = req.body?.payload;
+    const signature = req.headers['x-razorpay-signature'] || req.body?.signature;
+    const environment = req.body?.environment === 'LIVE' ? 'LIVE' : 'TEST';
+    const result = await processRazorpayWebhook({
+      environment,
+      signature,
+      rawBody: req.body,
+      payload: req.body,
+      io,
+    });
 
-    if (event === 'payment.captured') {
-      const paymentEntity = payload?.payment?.entity;
-      const orderId = paymentEntity?.order_id;
-      const paymentId = paymentEntity?.id;
-
-      if (orderId) {
-        await verifyPayment({
-          razorpayOrderId: orderId,
-          razorpayPaymentId: paymentId,
-          io,
-        });
-      }
-    }
-
-    res.json({ status: 'ok', received: true });
+    res.json({ status: 'ok', received: true, result });
   } catch (err) {
     console.error('[Webhook] Error processing webhook:', err.message);
     res.json({ status: 'error', message: err.message });
@@ -108,7 +102,7 @@ router.post(['/create', '/create-order'], async (req, res, next) => {
     }
 
     const io = req.app.get('io');
-    const order = await createPaymentOrder(purchase_intent_id, io);
+    const order = await createPaymentOrder(purchase_intent_id, { io });
     res.status(201).json(order);
   } catch (err) {
     next(err);
@@ -124,6 +118,30 @@ router.post(['/verify', '/:id/verify'], async (req, res, next) => {
       razorpay_payment_id,
       razorpay_signature,
     } = req.body;
+
+    const userId = getUserIdFromRequest(req);
+    const uRes = await query('SELECT role, merchant_id FROM users WHERE id::text = $1', [userId]);
+    const user = uRes.rows[0] || {};
+    const role = (user.role || '').toUpperCase();
+    const merchantId = user.merchant_id;
+    const lookupRes = await query(`
+      SELECT t.id, t.user_id, pi.merchant_id
+      FROM transactions t
+      JOIN purchase_intents pi ON t.purchase_intent_id = pi.id
+      WHERE t.id::text = $1 OR t.razorpay_order_id = $2
+      LIMIT 1
+    `, [transaction_id || req.params.id || null, razorpay_order_id || null]);
+
+    if (lookupRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Transaction not found' });
+    }
+    const tx = lookupRes.rows[0];
+    if (role === 'MERCHANT' && tx.merchant_id !== merchantId) {
+      return res.status(404).json({ error: 'Transaction not found' });
+    }
+    if (role !== 'MERCHANT' && role !== 'ADMIN' && tx.user_id !== userId) {
+      return res.status(404).json({ error: 'Transaction not found' });
+    }
 
     const io = req.app.get('io');
     const result = await verifyPayment({

@@ -78,7 +78,8 @@ export function requireMerchant(req, res, next) {
  * Enforce Admin / Supervisor privileges
  */
 export function requireAdmin(req, res, next) {
-  if (!req.user || req.user.role !== 'admin') {
+  const role = (req.user?.role || '').toUpperCase();
+  if (!req.user || role !== 'ADMIN') {
     return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Access denied. Administrator role required.' } });
   }
   next();

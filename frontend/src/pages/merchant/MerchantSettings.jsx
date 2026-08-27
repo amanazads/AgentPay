@@ -490,7 +490,7 @@ export default function MerchantSettings() {
                 { stage: '4. Price & Surge Validation', role: 'Pricing Engine', desc: 'Locks authoritative quote for 15m. Enforces 2% surge guard.', validation: 'Rejects price spikes immediately.' },
                 { stage: '5. Atomic Inventory Lock', role: 'Inventory Service', desc: 'Executes row-level SELECT FOR UPDATE to reserve stock unit.', validation: 'Prevents race conditions and overselling.' },
                 { stage: '6. Risk & Mandate Evaluation', role: 'Risk Engine', desc: 'Evaluates transaction anomaly score and authorization mandate.', validation: 'Halts unauthorized checkouts.' },
-                { stage: '7. Payment Rails Capture', role: 'Razorpay Sandbox', desc: 'Executes HMAC-SHA256 signature verified test capture.', validation: 'Fail-closed signature check.' },
+                { stage: '7. Test Payment Verification', role: 'Razorpay Sandbox', desc: 'Verifies HMAC-SHA256 test-mode payment callback. No real money moves.', validation: 'Fail-closed signature check.' },
                 { stage: '8. Canonical Order Creation', role: 'Order Ledger', desc: 'Inserts 1-to-1 order with DB unique constraints.', validation: 'Idempotency guaranteed at DB level.' },
                 { stage: '9. Webhook Dispatch & Audit', role: 'Event System', desc: 'Dispatches notification and records audit event.', validation: 'Audit ledger entry persisted.' },
               ].map((step, idx) => (

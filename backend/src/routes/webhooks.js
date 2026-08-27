@@ -59,7 +59,7 @@ router.post('/razorpay/live', async (req, res) => {
  * GET /api/webhooks/inbox
  * View durable webhook log entries (Deduplication & Audit View)
  */
-router.get('/inbox', async (req, res, next) => {
+router.get('/inbox', requireAdmin, async (req, res, next) => {
   try {
     const { environment, limit = 50 } = req.query;
     const where = environment ? 'WHERE environment = $1' : '';

@@ -124,7 +124,7 @@ export default function Login({ defaultMode = 'login' }) {
               <div>
                 <div className="feature-card-title">AI Commerce Merchant</div>
                 <div className="feature-card-desc">
-                  Turn your catalog into AI-readable schemas with live stock sync and Razorpay test rails settlement.
+                  Turn your catalog into AI-readable schemas with demo inventory checks and Razorpay test-mode payment verification.
                 </div>
               </div>
             </div>

@@ -7,9 +7,12 @@ import { createPaymentOrder, verifyPayment } from '../src/services/paymentServic
 import { createOrder, getOrderById } from '../src/services/orderService.js';
 import { processRazorpayWebhook } from '../src/services/webhookService.js';
 import { reconcileOrders } from '../src/services/reconciliationService.js';
+import { authenticateUser } from '../src/middleware/authMiddleware.js';
+import { generateAccessToken } from '../src/utils/authUtils.js';
 
 const app = express();
 app.use(express.json());
+app.use(authenticateUser);
 app.use('/api/ai', aiRoutes);
 
 describe('Track 01: Strict Financial Idempotency & Concurrency Safety Suite', () => {
@@ -17,10 +20,12 @@ describe('Track 01: Strict Financial Idempotency & Concurrency Safety Suite', ()
   let merchantId;
   let productId;
   let testIntentId;
+  let buyerToken;
 
   beforeAll(async () => {
-    const uRes = await query("SELECT id FROM users WHERE role = 'BUYER' LIMIT 1");
+    const uRes = await query("SELECT id, email, name, role FROM users WHERE role = 'BUYER' LIMIT 1");
     buyerUserId = uRes.rows[0]?.id;
+    buyerToken = generateAccessToken({ ...uRes.rows[0], role: 'BUYER' });
 
     const mRes = await query("SELECT id FROM merchants WHERE is_verified = true LIMIT 1");
     merchantId = mRes.rows[0]?.id;
@@ -46,9 +51,9 @@ describe('Track 01: Strict Financial Idempotency & Concurrency Safety Suite', ()
   it('TEST 1: Single purchase execution creates exactly 1 intent, 1 transaction, and 1 order', async () => {
     const res = await request(app)
       .post('/api/ai/chat')
+      .set('Authorization', `Bearer ${buyerToken}`)
       .send({
         message: 'Order a power bank with 20000mAh battery under ₹5,000',
-        user_id: buyerUserId,
       });
 
     expect(res.status).toBe(200);
@@ -77,9 +82,9 @@ describe('Track 01: Strict Financial Idempotency & Concurrency Safety Suite', ()
       request(app)
         .post('/api/ai/chat')
         .set('idempotency-key', idempotencyKey)
+        .set('Authorization', `Bearer ${buyerToken}`)
         .send({
           message: 'Order Sony WH-1000XM5 headphones under ₹30,000',
-          user_id: buyerUserId,
           idempotency_key: idempotencyKey,
         })
     );

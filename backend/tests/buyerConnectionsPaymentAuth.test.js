@@ -6,6 +6,7 @@ import { findEligibleProducts } from '../src/services/candidateFilter.js';
 import { parseBuyerIntent } from '../src/services/intentParser.js';
 import { merchantConnectionService } from '../src/services/merchantConnectionService.js';
 import { paymentMethodService } from '../src/services/paymentMethodService.js';
+import { generateAccessToken } from '../src/utils/authUtils.js';
 
 describe('Track 01: Buyer Connections & Payment Authorization Hardening Suite', () => {
   let testBuyerUserId;
@@ -13,11 +14,13 @@ describe('Track 01: Buyer Connections & Payment Authorization Hardening Suite', 
   let testMerchantId;
   let testProduct;
   let testPaymentMethodId;
+  let buyerToken;
 
   beforeAll(async () => {
     // 1. Fetch test buyer user
-    const userRes = await query("SELECT id FROM users WHERE role = 'user' OR role = 'BUYER' LIMIT 1");
+    const userRes = await query("SELECT id, email, name, role FROM users WHERE role = 'user' OR role = 'BUYER' LIMIT 1");
     testBuyerUserId = userRes.rows[0]?.id;
+    buyerToken = generateAccessToken({ ...userRes.rows[0], role: 'BUYER' });
 
     // 2. Fetch test agent
     const agentRes = await query("SELECT id FROM agents WHERE status = 'active' LIMIT 1");
@@ -280,18 +283,18 @@ describe('Track 01: Buyer Connections & Payment Authorization Hardening Suite', 
     const res1 = await request(app)
       .post('/api/ai/chat')
       .set('idempotency-key', idempotencyKey)
+      .set('Authorization', `Bearer ${buyerToken}`)
       .send({
         message: 'Order a power bank under ₹5,000',
-        user_id: testBuyerUserId,
         idempotency_key: idempotencyKey,
       });
 
     const res2 = await request(app)
       .post('/api/ai/chat')
       .set('idempotency-key', idempotencyKey)
+      .set('Authorization', `Bearer ${buyerToken}`)
       .send({
         message: 'Order a power bank under ₹5,000',
-        user_id: testBuyerUserId,
         idempotency_key: idempotencyKey,
       });
 

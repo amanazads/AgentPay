@@ -69,7 +69,7 @@ export class StandardPlatformMerchantAdapter {
       inStock: item.in_stock,
       availableQuantity: availableQty,
       requestedQuantity,
-      freshness: 'LIVE_DATABASE',
+      freshness: 'DEMO_DATABASE_CURRENT',
       timestamp: new Date().toISOString(),
     };
   }

@@ -144,7 +144,7 @@ export default function MerchantAnalytics() {
           <div>
             <h2 className="card-panel-title">AI Discovery-to-Purchase Funnel</h2>
             <p className="card-panel-sub">
-              Deterministic progression of autonomous buyer interactions from catalog search to confirmed order settlement.
+              Deterministic progression of autonomous buyer interactions from catalog search to confirmed test-mode order.
             </p>
           </div>
         </div>

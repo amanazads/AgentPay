@@ -15,6 +15,7 @@ import { getDefaultAddress } from '../services/addressService.js';
 import { dispatchCommerceNotification } from '../services/notificationDispatcher.js';
 import { parseBuyerIntent } from '../services/intentParser.js';
 import { findEligibleProducts } from '../services/candidateFilter.js';
+import { requireAdmin, requireAuth } from '../middleware/authMiddleware.js';
 
 const router = Router();
 
@@ -134,11 +135,11 @@ router.get('/demo-data', async (req, res, next) => {
     // Compute dynamic readiness breakdown
     const readinessPillars = [
       { name: 'Machine-Readable Catalog API', status: 'READY', score: 100, description: `${catalogCount}/${catalogCount} active SKUs indexed with structured JSON-LD schemas.` },
-      { name: 'Live Inventory Synchronization', status: 'CONNECTED', score: 100, description: `${catalogCount}/${catalogCount} verified in-stock items ready for immediate autonomous locking.` },
+      { name: 'Inventory Availability Snapshot', status: 'CONNECTED', score: 100, description: `${catalogCount}/${catalogCount} verified in-stock items ready for immediate autonomous locking in this demo database.` },
       { name: 'AI Summaries & Keyword Density', status: 'READY', score: 95, description: 'Natural language purchase intent extraction optimized across categories.' },
       { name: 'Structured Machine Specifications', status: 'READY', score: 92, description: 'Attributes and technical comparison matrix normalized for AI agents.' },
       { name: 'Price Stability & Surge Guard', status: 'ACTIVE', score: 100, description: 'Deterministic policy stops unexpected checkout price deviations (>2%).' },
-      { name: 'Instant Test Rails Settlement', status: 'ENABLED', score: 90, description: 'Razorpay Test Sandbox active with HMAC-SHA256 signature verification.' },
+      { name: 'Razorpay Test Payment Verification', status: 'ENABLED', score: 90, description: 'Razorpay Test Sandbox active with HMAC-SHA256 signature verification. No real money moves.' },
     ];
 
     const overallScore = Math.round(readinessPillars.reduce((acc, p) => acc + p.score, 0) / readinessPillars.length);
@@ -843,6 +844,9 @@ router.post('/simulate-price-change', async (req, res, next) => {
       surgedCheckoutPrice: surgedCheckoutPrice,
       priceDeviationPct: '+28.5%',
       decision: 'BLOCK',
+      paymentAttempted: false,
+      orderCreated: false,
+      auditEvent: 'PRICE_SURGE_DETECTED',
       reason: `Unannounced price surge: Catalog price ₹${catalogPrice.toLocaleString('en-IN')} jumped to ₹${surgedCheckoutPrice.toLocaleString('en-IN')} at merchant checkout (+28.5%). Exceeds pre-authorized spending ceiling of ₹${approvedLimit.toLocaleString('en-IN')}.`,
       paymentStatus: 'NOT ATTEMPTED (₹0 Charged)',
       orderStatus: 'NOT CREATED',
@@ -908,7 +912,7 @@ router.post('/simulate-reconciliation', async (req, res, next) => {
  * POST /api/ai-commerce/reset-demo
  * Resets demo test orders and transactions deterministically.
  */
-router.post('/reset-demo', async (req, res, next) => {
+router.post('/reset-demo', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     await query("DELETE FROM orders WHERE tracking_number LIKE 'TRK-%'");
     await query("DELETE FROM invoices WHERE invoice_number LIKE 'INV-%'");
