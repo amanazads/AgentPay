@@ -1,0 +1,186 @@
+/* ==========================================================================
+   AgentPay — Buyer Layout CSS
+   ========================================================================== */
+
+.buyer-layout-root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg-app);
+}
+
+.buyer-nav-header {
+  height: var(--header-h);
+  background-color: var(--bg-surface);
+  border-bottom: 1px solid var(--border-color);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.buyer-nav-content {
+  max-width: 1280px;
+  margin: 0 auto;
+  height: 100%;
+  padding: 0 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.buyer-brand-group {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.buyer-mobile-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  color: var(--text-main);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background-color: var(--bg-subtle);
+}
+
+.buyer-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+}
+
+.buyer-logo-badge {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background-color: var(--primary);
+  color: #ffffff;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  letter-spacing: -0.02em;
+}
+
+.buyer-logo-text {
+  font-size: 1.0625rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-main);
+}
+
+.buyer-role-chip {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background-color: var(--bg-subtle);
+  color: var(--text-muted);
+  border: 1px solid var(--border-color);
+}
+
+.buyer-nav-links {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.buyer-tab-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0.45rem 0.75rem;
+  border-radius: var(--radius-md);
+  font-size: 0.84375rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+}
+
+.buyer-tab-link:hover {
+  color: var(--text-main);
+  background-color: var(--bg-hover);
+}
+
+.buyer-tab-link.active {
+  color: var(--primary);
+  background-color: var(--bg-subtle);
+  border-color: var(--border-color);
+  font-weight: 600;
+}
+
+.buyer-user-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.buyer-user-pill {
+  font-size: 0.78125rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  background-color: var(--bg-subtle);
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-subtle);
+  max-width: 180px;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.buyer-signout-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0.4rem 0.65rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+  color: var(--text-subtle);
+  font-size: 0.78125rem;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.buyer-signout-btn:hover {
+  background-color: var(--bg-subtle);
+  color: var(--danger-text);
+  border-color: var(--danger-border);
+}
+
+.buyer-main-content {
+  flex: 1;
+  padding: 2rem 1.25rem;
+}
+
+.buyer-page-container {
+  max-width: 1140px;
+  margin: 0 auto;
+}
+
+/* Mobile Responsiveness */
+@media (max-width: 860px) {
+  .buyer-nav-links {
+    display: none;
+  }
+
+  .buyer-mobile-toggle {
+    display: flex;
+  }
+
+  .buyer-user-pill {
+    display: none;
+  }
+
+  .buyer-main-content {
+    padding: 1.25rem 0.875rem;
+  }
+}

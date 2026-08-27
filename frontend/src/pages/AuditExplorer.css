@@ -1,0 +1,32 @@
+/* Audit Explorer Styles */
+.audit-event-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.audit-item-row {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 0.75rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.12s ease;
+}
+
+.audit-item-row:hover {
+  background-color: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+
+.audit-event-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}

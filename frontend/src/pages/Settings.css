@@ -1,0 +1,218 @@
+/* Settings Page Styles */
+
+.settings-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  max-width: 900px;
+  width: 100%;
+}
+
+.settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.environment-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm, 4px);
+  background: #e0e7ff;
+  color: #3730a3;
+  border: 1px solid #c7d2fe;
+  letter-spacing: 0.02em;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-subtle, #64748b);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.settings-value {
+  font-size: 0.875rem;
+  color: var(--text-main, #0f172a);
+}
+
+.settings-value-strong {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text-main, #0f172a);
+}
+
+.settings-hint {
+  font-size: 0.71875rem;
+  color: var(--text-subtle, #64748b);
+  margin-top: 1px;
+}
+
+.settings-action-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--brand-primary, #2563eb);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.settings-action-link:hover {
+  color: var(--brand-dark, #1d4ed8);
+  text-decoration: underline;
+}
+
+/* Security Controls List */
+.security-controls-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.security-control-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background-color: var(--bg-surface, #ffffff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: var(--radius-md, 6px);
+  gap: 1rem;
+}
+
+.security-control-name {
+  font-size: 0.84375rem;
+  font-weight: 600;
+  color: var(--text-main, #0f172a);
+}
+
+.security-control-sub {
+  font-size: 0.75rem;
+  color: var(--text-subtle, #64748b);
+  margin-top: 1px;
+}
+
+.control-badge-active {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: #dcfce7;
+  color: #15803d;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+/* Architecture & Boundary Details */
+.architecture-banner {
+  padding: 0.875rem 1.125rem;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius-md, 6px);
+}
+
+.toggle-button {
+  background: transparent;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: var(--radius-sm, 4px);
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-main, #0f172a);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.toggle-button:hover {
+  background: #f1f5f9;
+}
+
+.pipeline-step-card {
+  padding: 0.75rem;
+  background: #f8fafc;
+  border: 1px solid var(--border-subtle, #e2e8f0);
+  border-radius: var(--radius-sm, 4px);
+}
+
+.pipeline-step-title {
+  font-size: 0.78125rem;
+  font-weight: 700;
+  color: var(--text-main, #0f172a);
+  margin-bottom: 2px;
+}
+
+.pipeline-step-desc {
+  font-size: 0.71875rem;
+  color: var(--text-subtle, #64748b);
+  line-height: 1.35;
+}
+
+.boundary-matrix {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.boundary-column {
+  padding: 0.875rem 1rem;
+  border-radius: var(--radius-md, 6px);
+}
+
+.boundary-allowed {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+}
+
+.boundary-prohibited {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+}
+
+.boundary-title {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+
+.boundary-list {
+  margin: 0;
+  padding-left: 1.125rem;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-main, #0f172a);
+}
+
+.environment-info-card {
+  padding: 0.875rem;
+  background: #ffffff;
+  border-radius: var(--radius-md, 6px);
+  border: 1px solid var(--border-color, #e2e8f0);
+}
+
+@media (max-width: 640px) {
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+  .security-control-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

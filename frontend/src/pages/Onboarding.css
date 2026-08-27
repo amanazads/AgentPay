@@ -1,0 +1,110 @@
+/* Onboarding Wizard Styles */
+.onboarding-wrapper {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background-color: #f8fafc;
+  padding: 2rem 1.5rem;
+}
+
+.onboarding-card {
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  max-width: 540px;
+  width: 100%;
+  padding: 2.5rem 2.25rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.onboarding-progress-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 2rem;
+}
+
+.onboarding-progress-dot {
+  flex: 1;
+  height: 4px;
+  background-color: #e2e8f0;
+  border-radius: 9999px;
+  transition: background-color 0.2s ease;
+}
+
+.onboarding-progress-dot.active {
+  background-color: #0f172a;
+}
+
+.onboarding-title {
+  font-size: 1.45rem;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+  margin-bottom: 0.5rem;
+}
+
+.onboarding-sub {
+  font-size: 0.875rem;
+  color: #64748b;
+  margin-bottom: 1.75rem;
+}
+
+.onboarding-options-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 2rem;
+}
+
+.onboarding-chip-option {
+  padding: 0.85rem 1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background-color: #ffffff;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #334155;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.onboarding-chip-option:hover {
+  border-color: #94a3b8;
+}
+
+.onboarding-chip-option.selected {
+  border-color: #0f172a;
+  background-color: #f1f5f9;
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.onboarding-radio-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 2rem;
+}
+
+.onboarding-radio-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.onboarding-radio-card:hover {
+  border-color: #94a3b8;
+}
+
+.onboarding-radio-card.selected {
+  border-color: #0f172a;
+  background-color: #f8fafc;
+}

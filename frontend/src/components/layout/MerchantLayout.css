@@ -1,0 +1,186 @@
+/* ==========================================================================
+   AgentPay — Merchant Layout CSS
+   ========================================================================== */
+
+.merchant-layout-root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg-app);
+}
+
+.merchant-nav-header {
+  height: var(--header-h);
+  background-color: var(--bg-surface);
+  border-bottom: 1px solid var(--border-color);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.merchant-nav-content {
+  max-width: 1280px;
+  margin: 0 auto;
+  height: 100%;
+  padding: 0 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.merchant-brand-group {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.merchant-mobile-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  color: var(--text-main);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background-color: var(--bg-subtle);
+}
+
+.merchant-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+}
+
+.merchant-logo-badge {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background-color: #065f46;
+  color: #ffffff;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  letter-spacing: -0.02em;
+}
+
+.merchant-logo-text {
+  font-size: 1.0625rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-main);
+}
+
+.merchant-role-chip {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background-color: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+}
+
+.merchant-nav-links {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.merchant-tab-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0.45rem 0.75rem;
+  border-radius: var(--radius-md);
+  font-size: 0.84375rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+}
+
+.merchant-tab-link:hover {
+  color: var(--text-main);
+  background-color: var(--bg-hover);
+}
+
+.merchant-tab-link.active {
+  color: var(--primary);
+  background-color: var(--bg-subtle);
+  border-color: var(--border-color);
+  font-weight: 600;
+}
+
+.merchant-user-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.merchant-user-pill {
+  font-size: 0.78125rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  background-color: var(--bg-subtle);
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-subtle);
+  max-width: 180px;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.merchant-signout-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0.4rem 0.65rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+  color: var(--text-subtle);
+  font-size: 0.78125rem;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.merchant-signout-btn:hover {
+  background-color: var(--bg-subtle);
+  color: var(--danger-text);
+  border-color: var(--danger-border);
+}
+
+.merchant-main-content {
+  flex: 1;
+  padding: 2rem 1.25rem;
+}
+
+.merchant-page-container {
+  max-width: 1140px;
+  margin: 0 auto;
+}
+
+/* Mobile Responsiveness */
+@media (max-width: 900px) {
+  .merchant-nav-links {
+    display: none;
+  }
+
+  .merchant-mobile-toggle {
+    display: flex;
+  }
+
+  .merchant-user-pill {
+    display: none;
+  }
+
+  .merchant-main-content {
+    padding: 1.25rem 0.875rem;
+  }
+}

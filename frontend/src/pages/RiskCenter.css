@@ -1,0 +1,25 @@
+/* Risk Center Styles */
+.risk-dimensions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.risk-dim-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 1rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.risk-dim-card:hover {
+  border-color: var(--border-strong);
+}
+
+.risk-dim-card.active {
+  border-color: var(--primary);
+  background-color: var(--bg-subtle);
+}
