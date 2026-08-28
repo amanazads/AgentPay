@@ -2,9 +2,12 @@ import { query } from '../config/database.js';
 import { recordAuditEvent } from './auditService.js';
 
 /**
- * Reset Demo Data Service for Live Technical Evaluations & Buildathon Judging
- * Preserves catalog seeds, merchant identity, user auth, and schema.
- * Clears demo transactions, orders, invoices, and resets buyer spending.
+ * Reset Demo Data Service for Live Technical Evaluations & Buildathon Judging.
+ * 
+ * CRITICAL POLICY INVARIANT:
+ * Clears demo transactions, orders, invoices, and reservations to restore clean baselines.
+ * MUST NEVER delete or overwrite active buyer policies, spending preferences, agent policies,
+ * or authorization thresholds. Production policies remain authoritative across demo resets.
  */
 export async function resetDemoData(io = null) {
   // 1. Delete all invoices

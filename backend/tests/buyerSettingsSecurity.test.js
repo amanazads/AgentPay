@@ -17,8 +17,12 @@ describe('Track 01: Buyer Settings, Identity & Security Controls Hardening Suite
   let testAuthId;
 
   beforeAll(async () => {
-    // 1. Fetch or create test buyer user
-    const uRes = await query("SELECT * FROM users WHERE role = 'BUYER' OR role = 'user' LIMIT 1");
+    // 1. Create isolated test buyer user
+    const uRes = await query(`
+      INSERT INTO users (email, name, role)
+      VALUES ('buyer_settings_tester_' || floor(random()*1000000) || '@agentpay.com', 'Buyer Settings Tester', 'BUYER')
+      RETURNING *
+    `);
     testBuyerUser = uRes.rows[0];
     buyerToken = generateAccessToken(testBuyerUser);
 
@@ -240,22 +244,12 @@ describe('Track 01: Buyer Settings, Identity & Security Controls Hardening Suite
   });
 
   afterAll(async () => {
-    // Restore default clean preferences & payment mandate
     if (testBuyerUser?.id) {
-      await paymentMethodService.addPaymentMethod(testBuyerUser.id, {
-        single_transaction_limit: 50000.00,
-        monthly_limit: 200000.00,
-        is_default: true,
-      });
-      await query(`
-        UPDATE user_preferences
-        SET monthly_budget = 100000,
-            auto_purchase_limit = 50000,
-            categories = ARRAY['Electronics', 'Peripherals', 'Software & Licenses', 'Office Supplies'],
-            purchase_behavior = 'auto_within_limit',
-            updated_at = NOW()
-        WHERE user_id = $1
-      `, [testBuyerUser.id]);
+      await query('DELETE FROM in_app_notifications WHERE user_id = $1', [testBuyerUser.id]);
+      await query('DELETE FROM user_merchant_connections WHERE user_id = $1', [testBuyerUser.id]);
+      await query('DELETE FROM user_payment_methods WHERE user_id = $1', [testBuyerUser.id]);
+      await query('DELETE FROM user_preferences WHERE user_id = $1', [testBuyerUser.id]);
+      await query('DELETE FROM users WHERE id = $1', [testBuyerUser.id]);
     }
   });
 });

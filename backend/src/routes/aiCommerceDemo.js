@@ -21,7 +21,12 @@ import env from '../config/env.js';
 const router = Router();
 
 /**
- * Helper: Ensure Demo Store & standard catalog products exist deterministically in PostgreSQL
+ * Helper: Ensure Demo Store & standard catalog products exist deterministically in PostgreSQL.
+ * 
+ * CRITICAL POLICY INVARIANT:
+ * Catalog and demo data initialization must NEVER mutate active buyer or agent policies.
+ * Financial authorization thresholds, daily/monthly budgets, and category restrictions
+ * remain strictly governed by explicit buyer/admin configuration in policies and user_preferences.
  */
 async function ensureDemoStoreAndProducts() {
   let mRes = await query("SELECT * FROM merchants WHERE is_verified = true AND (is_test_lab = false OR is_test_lab IS NULL) ORDER BY created_at ASC LIMIT 1");
@@ -46,7 +51,7 @@ async function ensureDemoStoreAndProducts() {
     demoMerchantId = mRes.rows[0].id;
   }
 
-  // Ensure AI metadata for all products that don't have it
+  // Ensure AI metadata for all products that don't have it (idempotent)
   await query(`
     INSERT INTO product_ai_metadata (product_id, ai_summary, target_audience, use_cases, keywords, is_promoted, margin_tier)
     SELECT 
@@ -169,7 +174,6 @@ router.get(['/catalog-readiness', '/demo-data'], async (req, res, next) => {
 router.post(['/evaluate-purchase-flow', '/execute-happy-path'], async (req, res, next) => {
   const startTime = Date.now();
   try {
-    await ensureDemoStoreAndProducts();
     const demoMerchantId = await ensureDemoStoreAndProducts();
     const io = req.app.get('io');
     const { productId, prompt, deliveryMethod = 'STANDARD' } = req.body || {};
