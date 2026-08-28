@@ -126,23 +126,40 @@ export const api = {
   runSecurityScenario: (scenarioId) =>
     request(`/api/security-tests/${scenarioId}`, { method: 'POST' }),
   resetDemo: () => request('/api/system/reset-demo', { method: 'POST' }),
-  // AI Commerce Interactive Demonstration Suite
-  getDemoCommerceData: () => request('/api/ai-commerce/demo-data'),
-  executeAICommerceDemo: (params = {}) =>
-    request('/api/ai-commerce/execute-happy-path', {
+  
+  // AI Commerce Capabilities & Diagnostics Engine
+  getAICommerceReadinessData: () => request('/api/ai-commerce/catalog-readiness'),
+  getDemoCommerceData: () => request('/api/ai-commerce/catalog-readiness'),
+  executeAutonomousCommercePreview: (params = {}) =>
+    request('/api/ai-commerce/evaluate-purchase-flow', {
       method: 'POST',
       body: typeof params === 'string' ? { prompt: params } : params,
     }),
-  simulatePriceChangeFailure: (params = {}) =>
-    request('/api/ai-commerce/simulate-price-change', {
+  executeAICommerceDemo: (params = {}) =>
+    request('/api/ai-commerce/evaluate-purchase-flow', {
+      method: 'POST',
+      body: typeof params === 'string' ? { prompt: params } : params,
+    }),
+  testPriceSurgeProtection: (params = {}) =>
+    request('/api/ai-commerce/test-surge-protection', {
       method: 'POST',
       body: typeof params === 'string' ? { productId: params } : params,
     }),
+  simulatePriceChangeFailure: (params = {}) =>
+    request('/api/ai-commerce/test-surge-protection', {
+      method: 'POST',
+      body: typeof params === 'string' ? { productId: params } : params,
+    }),
+  testSignatureVerification: (params = {}) =>
+    request('/api/ai-commerce/test-signature-verification', { method: 'POST', body: params }),
   simulatePaymentFailure: (params = {}) =>
-    request('/api/ai-commerce/simulate-payment-failure', { method: 'POST', body: params }),
+    request('/api/ai-commerce/test-signature-verification', { method: 'POST', body: params }),
+  testLedgerReconciliation: (params = {}) =>
+    request('/api/ai-commerce/reconcile-ledger', { method: 'POST', body: params }),
   simulateReconciliation: (params = {}) =>
-    request('/api/ai-commerce/simulate-reconciliation', { method: 'POST', body: params }),
-  resetAICommerceDemo: () => request('/api/ai-commerce/reset-demo', { method: 'POST' }),
+    request('/api/ai-commerce/reconcile-ledger', { method: 'POST', body: params }),
+  resetAICommerceState: () => request('/api/ai-commerce/reset-state', { method: 'POST' }),
+  resetAICommerceDemo: () => request('/api/ai-commerce/reset-state', { method: 'POST' }),
 
   // Addresses & Invoicing
   getAddresses: () => request('/api/buyer/addresses'),

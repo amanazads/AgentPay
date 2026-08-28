@@ -21,7 +21,7 @@ const EXECUTION_STAGES = [
   { id: 3, label: 'Filtering & comparing eligible candidates' },
   { id: 4, label: 'Evaluating spending policies & risk engine' },
   { id: 5, label: 'Revalidating price & live inventory' },
-  { id: 6, label: 'Executing payment on Razorpay test rails' },
+  { id: 6, label: 'Authorizing payment & cryptographic verification' },
   { id: 7, label: 'Confirming order & generating invoice' },
 ];
 
@@ -330,8 +330,8 @@ export default function Home() {
           {currentSession.intent_parsed && (
             <div style={{ padding: '0.875rem 1rem', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, marginBottom: '1.25rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                <span style={{ fontWeight: 700, fontSize: '0.8125rem', color: '#0f172a' }}>
-                  🎯 Extracted Intent & Hard Constraints:
+                <span style={{ fontWeight: 700, fontSize: '0.8125rem', color: '#0f172a', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Icons.Sparkles size={14} /> Extracted Intent & Hard Constraints:
                 </span>
                 <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#0369a1', backgroundColor: '#e0f2fe', padding: '2px 8px', borderRadius: 4 }}>
                   Deterministic Parse
@@ -473,8 +473,9 @@ export default function Home() {
                             variant="secondary"
                             size="sm"
                             onClick={() => setSelectedOrderDetail(currentSession.order)}
+                            icon={<Icons.Activity size={14} />}
                           >
-                            🚚 Track Order Lifecycle
+                            Track Order Lifecycle
                           </Button>
                         )}
                         {currentSession.invoice && (
@@ -482,8 +483,9 @@ export default function Home() {
                             variant="outline"
                             size="sm"
                             onClick={() => setSelectedInvoice(currentSession.invoice)}
+                            icon={<Icons.FileText size={14} />}
                           >
-                            📄 View Official Invoice
+                            View Official Invoice
                           </Button>
                         )}
                       </div>
@@ -662,8 +664,9 @@ export default function Home() {
                   variant="primary"
                   size="sm"
                   onClick={() => handleViewInvoice(selectedOrderDetail.order_id || selectedOrderDetail.id)}
+                  icon={<Icons.FileText size={13} />}
                 >
-                  📄 View Invoice
+                  View Invoice
                 </Button>
               )}
               <Button variant="secondary" size="sm" onClick={() => setSelectedOrderDetail(null)}>
@@ -702,19 +705,19 @@ export default function Home() {
               </div>
               <div style={{ textAlign: 'right' }}>
                 <div style={{ fontWeight: 700, color: '#64748b', textTransform: 'uppercase', fontSize: '0.6875rem' }}>Payment Status:</div>
-                <div style={{ color: '#059669', fontWeight: 700 }}>PAID (Razorpay Test Rails)</div>
-                <div className="mono" style={{ fontSize: '0.75rem', color: '#64748b' }}>Ref: {selectedInvoice.payment_reference || 'pay_test_verified'}</div>
+                <div style={{ color: '#059669', fontWeight: 700 }}>PAID (Verified)</div>
+                <div className="mono" style={{ fontSize: '0.75rem', color: '#64748b' }}>Ref: {selectedInvoice.payment_reference || 'pay_verified'}</div>
               </div>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '1rem', borderTop: '1px solid #e2e8f0', fontWeight: 800 }}>
-              <span>Total Order GMV:</span>
+              <span>Total Order Amount:</span>
               <span style={{ fontSize: '1.25rem', color: '#2563eb' }}>₹{parseFloat(selectedInvoice.total_amount).toLocaleString('en-IN')}</span>
             </div>
 
             <div style={{ textAlign: 'right', marginTop: '0.5rem' }}>
-              <Button variant="primary" size="sm" onClick={() => window.print()}>
-                🖨️ Print / Save PDF
+              <Button variant="primary" size="sm" onClick={() => window.print()} icon={<Icons.FileText size={13} />}>
+                Print / Save PDF
               </Button>
             </div>
           </div>

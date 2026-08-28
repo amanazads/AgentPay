@@ -67,14 +67,14 @@ export default function Connections() {
       await api.addPaymentMethod({
         provider: 'razorpay_sandbox',
         method_type: 'upi_mandate',
-        identifier_masked: 'user@okaxis (Sandbox Mandate)',
+        identifier_masked: 'user@okaxis (Active Mandate)',
         single_transaction_limit: 50000,
         monthly_limit: 200000,
         is_default: true,
       });
       const pmRes = await api.getPaymentMethods();
       setPaymentMethods(pmRes.paymentMethods || []);
-      showToast('Sandbox Payment Authorization established (₹50,000 Limit).', 'success');
+      showToast('Payment Authorization established (₹50,000 Limit).', 'success');
     } catch (e) {
       showToast(e.message || 'Failed to link payment mandate.', 'error');
     } finally {
@@ -113,20 +113,6 @@ export default function Connections() {
           <p className="text-body" style={{ marginTop: 2 }}>
             Manage verified merchant connectors, live catalog status, and autonomous payment authorizations.
           </p>
-        </div>
-
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <span style={{
-            fontSize: '0.75rem',
-            fontWeight: 600,
-            padding: '4px 10px',
-            borderRadius: 'var(--radius-sm)',
-            background: '#e0e7ff',
-            color: '#3730a3',
-            border: '1px solid #c7d2fe',
-          }}>
-            SANDBOX ENVIRONMENT
-          </span>
         </div>
       </div>
 
@@ -323,9 +309,9 @@ export default function Connections() {
                         </div>
                         <div>
                           <span style={{ color: 'var(--text-muted)' }}>Payment Rails: </span>
-                          <strong style={{ color: '#2563eb' }}>Razorpay Sandbox</strong>
+                          <strong style={{ color: '#2563eb' }}>Razorpay Integration</strong>
                           <div style={{ color: 'var(--text-subtle)', fontSize: '0.71875rem' }}>
-                            Test merchant gateway
+                            Active payment gateway
                           </div>
                         </div>
                       </div>
@@ -373,7 +359,7 @@ export default function Connections() {
                 No Active Payment Authorization
               </div>
               <p className="text-body" style={{ marginBottom: '1rem', maxWidth: 460, margin: '0 auto 1rem' }}>
-                AgentPay cannot execute autonomous checkout without an authorized payment mandate. Link a sandbox mandate below to enable test purchases.
+                AgentPay cannot execute autonomous checkout without an authorized payment mandate. Establish a payment mandate below to authorize autonomous procurement within your spending ceiling.
               </p>
               <Button
                 variant="primary"
@@ -381,7 +367,7 @@ export default function Connections() {
                 loading={actionLoading === 'mandate_add'}
                 icon={<Icons.CreditCard size={15} />}
               >
-                Establish Sandbox Authorization (₹50,000 Limit)
+                Establish Payment Authorization (₹50,000 Limit)
               </Button>
             </div>
           ) : (
@@ -433,10 +419,10 @@ export default function Connections() {
                       </span>
                     </div>
                     <div style={{ fontSize: '0.8125rem', color: 'var(--text-subtle)', marginTop: 2 }}>
-                      Provider: Razorpay Sandbox Rails • Single Tx Limit: <strong>{formatCurrency(activeMandate.single_transaction_limit)}</strong> • Monthly Ceiling: {formatCurrency(activeMandate.monthly_limit || 200000)}
+                      Provider: Razorpay Rails • Single Tx Limit: <strong>{formatCurrency(activeMandate.single_transaction_limit)}</strong> • Monthly Ceiling: {formatCurrency(activeMandate.monthly_limit || 200000)}
                     </div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                      Tokenized Ref: {activeMandate.auth_environment || 'SANDBOX'} (Expires {new Date(activeMandate.expires_at || Date.now() + 365*86400000).toLocaleDateString()})
+                      Tokenized Ref: {activeMandate.auth_environment || 'ACTIVE_MANDATE'} (Expires {new Date(activeMandate.expires_at || Date.now() + 365*86400000).toLocaleDateString()})
                     </div>
                   </div>
                 </div>
@@ -509,7 +495,7 @@ export default function Connections() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem' }}>
             <div style={{ padding: '0.875rem', background: '#ffffff', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
               <div style={{ fontWeight: 600, fontSize: '0.8125rem', color: 'var(--text-main)', marginBottom: '0.25rem' }}>
-                🔒 Zero Credential Storage
+                Zero Credential Storage
               </div>
               <p style={{ fontSize: '0.75rem', color: 'var(--text-subtle)', lineHeight: 1.4 }}>
                 AgentPay never stores or handles your UPI PIN, CVV, OTP, or netbanking passwords. All payment rails use tokenized mandates.
@@ -518,7 +504,7 @@ export default function Connections() {
 
             <div style={{ padding: '0.875rem', background: '#ffffff', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
               <div style={{ fontWeight: 600, fontSize: '0.8125rem', color: 'var(--text-main)', marginBottom: '0.25rem' }}>
-                ⚖️ Dual-Boundary Resolution
+                Dual-Boundary Resolution
               </div>
               <p style={{ fontSize: '0.75rem', color: 'var(--text-subtle)', lineHeight: 1.4 }}>
                 Every purchase is evaluated against both your Autonomous Purchase Limit and your Payment Mandate Ceiling. The lowest ceiling wins.
@@ -527,7 +513,7 @@ export default function Connections() {
 
             <div style={{ padding: '0.875rem', background: '#ffffff', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
               <div style={{ fontWeight: 600, fontSize: '0.8125rem', color: 'var(--text-main)', marginBottom: '0.25rem' }}>
-                🛑 Fail-Closed Revocation
+                Fail-Closed Revocation
               </div>
               <p style={{ fontSize: '0.75rem', color: 'var(--text-subtle)', lineHeight: 1.4 }}>
                 Revoking payment authorization immediately blocks all pending and future autonomous payments while keeping product discovery active.

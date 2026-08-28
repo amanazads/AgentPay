@@ -201,23 +201,23 @@ export default function MerchantAnalytics() {
 
           <div className="card-panel-body" style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f1f5f9' }}>
-              <span style={{ fontSize: '0.8125rem', color: '#0f172a', fontWeight: 500 }}>✓ Confirmed & Paid</span>
+              <span style={{ fontSize: '0.8125rem', color: '#0f172a', fontWeight: 500 }}>Confirmed & Paid</span>
               <span className="mono" style={{ fontSize: '0.8125rem', fontWeight: 700, color: '#16a34a' }}>{outcomes.confirmed || 0}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f1f5f9' }}>
-              <span style={{ fontSize: '0.8125rem', color: '#0f172a', fontWeight: 500 }}>⚙️ In Fulfillment (Processing/Packed)</span>
+              <span style={{ fontSize: '0.8125rem', color: '#0f172a', fontWeight: 500 }}>In Fulfillment (Processing / Packed)</span>
               <span className="mono" style={{ fontSize: '0.8125rem', fontWeight: 700, color: '#2563eb' }}>{(outcomes.processing || 0) + (outcomes.packed || 0)}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f1f5f9' }}>
-              <span style={{ fontSize: '0.8125rem', color: '#0f172a', fontWeight: 500 }}>🚚 Shipped / Delivered</span>
+              <span style={{ fontSize: '0.8125rem', color: '#0f172a', fontWeight: 500 }}>Shipped / Delivered</span>
               <span className="mono" style={{ fontSize: '0.8125rem', fontWeight: 700, color: '#7c3aed' }}>{(outcomes.shipped || 0) + (outcomes.delivered || 0) + (outcomes.completed || 0)}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f1f5f9' }}>
-              <span style={{ fontSize: '0.8125rem', color: '#0f172a', fontWeight: 500 }}>🛑 Cancelled / Stock Released</span>
+              <span style={{ fontSize: '0.8125rem', color: '#0f172a', fontWeight: 500 }}>Cancelled / Stock Released</span>
               <span className="mono" style={{ fontSize: '0.8125rem', fontWeight: 700, color: '#dc2626' }}>{outcomes.cancelled || 0}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0' }}>
-              <span style={{ fontSize: '0.8125rem', color: '#0f172a', fontWeight: 500 }}>🛡️ Blocked by Policy / Surge</span>
+              <span style={{ fontSize: '0.8125rem', color: '#0f172a', fontWeight: 500 }}>Blocked by Policy / Surge</span>
               <span className="mono" style={{ fontSize: '0.8125rem', fontWeight: 700, color: '#d97706' }}>{outcomes.blocked || 0}</span>
             </div>
           </div>

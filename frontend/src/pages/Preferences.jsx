@@ -393,7 +393,7 @@ export default function Preferences() {
         <div className="card-panel-header">
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span style={{ fontSize: '1rem' }}>🔬</span>
+              <Icons.Cpu size={18} />
               <h2 className="card-panel-title">Test My Rules & Policy Simulator</h2>
             </div>
             <p className="card-panel-sub">

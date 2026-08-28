@@ -40,12 +40,16 @@ describe('Track 01: Buyer Settings, Identity & Security Controls Hardening Suite
     const aRes = await query("SELECT id FROM agents WHERE status = 'active' LIMIT 1");
     testAgentId = aRes.rows[0]?.id;
 
-    // 4. Fetch verified merchant & product
-    const mRes = await query("SELECT id FROM merchants WHERE is_verified = true LIMIT 1");
-    testMerchantId = mRes.rows[0]?.id;
-
-    const pRes = await query("SELECT * FROM products WHERE merchant_id = $1 AND in_stock = true LIMIT 1", [testMerchantId]);
+    // 4. Fetch verified merchant & in-stock product
+    const pRes = await query(`
+      SELECT p.* 
+      FROM products p 
+      JOIN merchants m ON p.merchant_id = m.id 
+      WHERE m.is_verified = true AND p.in_stock = true 
+      LIMIT 1
+    `);
     testProduct = pRes.rows[0];
+    testMerchantId = testProduct.merchant_id;
 
     // 5. Connect merchant and set default preferences
     await merchantConnectionService.connectMerchant(testBuyerUser.id, testMerchantId);

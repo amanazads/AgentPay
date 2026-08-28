@@ -139,9 +139,6 @@ export default function MerchantSettings() {
         </div>
 
         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <span className="environment-badge">
-            SANDBOX TEST ENVIRONMENT (RAZORPAY TEST MODE)
-          </span>
           <StatusBadge status="ACTIVE" label="Session Active" />
         </div>
       </div>

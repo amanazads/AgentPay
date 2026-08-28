@@ -289,7 +289,7 @@ export class StandardMerchantAdapter extends BaseMerchantAdapter {
 export class VerifiedMerchantStoreAdapter extends StandardMerchantAdapter {
   constructor(merchantRecord) {
     super(merchantRecord);
-    this.name = merchantRecord?.name || 'Merchant Test Store';
+    this.name = merchantRecord?.name || 'Acme Tech Electronics';
     this.rating = parseFloat(merchantRecord?.rating) || 4.95;
     this.deliveryDays = 2;
   }

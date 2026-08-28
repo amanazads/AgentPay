@@ -26,13 +26,16 @@ describe('Track 01: Buyer Connections & Payment Authorization Hardening Suite', 
     const agentRes = await query("SELECT id FROM agents WHERE status = 'active' LIMIT 1");
     testAgentId = agentRes.rows[0]?.id;
 
-    // 3. Fetch verified merchant
-    const merchRes = await query("SELECT id FROM merchants WHERE is_verified = true LIMIT 1");
-    testMerchantId = merchRes.rows[0]?.id;
-
-    // 4. Fetch test product
-    const prodRes = await query("SELECT * FROM products WHERE merchant_id = $1 AND in_stock = true LIMIT 1", [testMerchantId]);
+    // 3. Fetch verified merchant & in-stock product
+    const prodRes = await query(`
+      SELECT p.*, m.id as m_id 
+      FROM products p 
+      JOIN merchants m ON p.merchant_id = m.id 
+      WHERE m.is_verified = true AND p.in_stock = true 
+      LIMIT 1
+    `);
     testProduct = prodRes.rows[0];
+    testMerchantId = testProduct.merchant_id;
 
     // 5. Clean existing payment methods and past test transactions for clean spend isolation
     await query("DELETE FROM approvals WHERE purchase_intent_id IN (SELECT id FROM purchase_intents WHERE user_id = $1)", [testBuyerUserId]);

@@ -111,7 +111,7 @@ export async function reconcileOrders({ autoHeal = true } = {}) {
           await query(`
             UPDATE orders SET
               tracking_number = $1,
-              carrier = COALESCE(carrier, 'AgentPay Test Logistics (Simulated Courier)')
+              carrier = COALESCE(carrier, 'AgentPay Express Logistics')
             WHERE id = $2
           `, [newTracking, orderId]);
           healed.push({ orderId, orderNumber: orderNum, fix: `Assigned tracking number ${newTracking}` });

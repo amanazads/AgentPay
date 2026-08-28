@@ -116,7 +116,7 @@ router.get('/purchases', async (req, res, next) => {
         fulfillment_status: o.fulfillment_status || o.order_status || 'CONFIRMED',
         status: o.fulfillment_status || o.order_status || 'CONFIRMED',
         tracking_number: o.tracking_number,
-        carrier: o.carrier || 'AgentPay Test Logistics (Simulated Courier)',
+        carrier: o.carrier || 'AgentPay Express Logistics',
         timeline: o.timeline || [],
         order_timeline: o.timeline || [],
         invoice_id: o.invoice_id,

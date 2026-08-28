@@ -4,10 +4,10 @@ async function main() {
   console.log('Cleaning merchants...');
   
   // Set is_verified = false on all other stores
-  await query("UPDATE merchants SET is_verified = false WHERE name != 'AgentPay Demo Store'");
-  await query("UPDATE merchants SET is_verified = true WHERE name = 'AgentPay Demo Store'");
+  await query("UPDATE merchants SET is_verified = false WHERE name NOT IN ('Acme Tech Electronics', 'AgentPay Demo Store')");
+  await query("UPDATE merchants SET is_verified = true, name = 'Acme Tech Electronics' WHERE name IN ('Acme Tech Electronics', 'AgentPay Demo Store')");
 
-  const demoStore = await query("SELECT id FROM merchants WHERE name = 'AgentPay Demo Store'");
+  const demoStore = await query("SELECT id FROM merchants WHERE name = 'Acme Tech Electronics'");
   const demoId = demoStore.rows[0]?.id;
 
   if (demoId) {
@@ -15,7 +15,7 @@ async function main() {
     await query("DELETE FROM user_merchant_connections WHERE merchant_id != $1", [demoId]);
   }
 
-  console.log('Cleaned up. Only AgentPay Demo Store is verified.');
+  console.log('Cleaned up. Acme Tech Electronics is verified.');
 }
 
 main().then(() => process.exit(0)).catch((err) => {

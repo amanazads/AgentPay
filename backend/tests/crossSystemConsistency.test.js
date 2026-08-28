@@ -99,7 +99,7 @@ describe('Cross-System Order State, Data Consistency & Fulfillment State Machine
   it('TEST 4: Merchant advances order to SHIPPED - Tracking number generated & visible to Buyer', async () => {
     const updated = await transitionOrderFulfillment(testOrderId, 'SHIPPED', {
       merchantId,
-      carrier: 'AgentPay Test Logistics (Simulated Courier)',
+      carrier: 'AgentPay Express Logistics',
     });
 
     expect(updated.order_status).toBe('SHIPPED');
@@ -109,7 +109,7 @@ describe('Cross-System Order State, Data Consistency & Fulfillment State Machine
     const buyerOrder = await getOrderById(testOrderId);
     expect(buyerOrder.order_status).toBe('SHIPPED');
     expect(buyerOrder.tracking_number).toBe(updated.tracking_number);
-    expect(buyerOrder.carrier).toBe('AgentPay Test Logistics (Simulated Courier)');
+    expect(buyerOrder.carrier).toBe('AgentPay Express Logistics');
   });
 
   it('TEST 5: Merchant advances order to DELIVERED - Buyer reflects DELIVERED', async () => {

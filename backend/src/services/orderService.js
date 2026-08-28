@@ -69,7 +69,7 @@ export async function createOrder({
   deliveryAddress = { name: 'AgentPay Buyer', address_line1: '742 Tech Park', city: 'Bengaluru', state: 'Karnataka', pincode: '560100' },
   deliveryMethod = 'STANDARD',
   estimatedDeliveryDate,
-  carrier = 'AgentPay Test Logistics (Simulated Courier)',
+  carrier = 'AgentPay Express Logistics',
   productName,
   productSku,
   productBrand,
@@ -316,7 +316,7 @@ export async function transitionOrderFulfillment(orderId, targetStatus, { mercha
 
   // Generate tracking if advancing to SHIPPED and not already assigned
   let assignedTracking = trackingNumber || order.tracking_number;
-  let assignedCarrier = carrier || order.carrier || 'AgentPay Test Logistics (Simulated Courier)';
+  let assignedCarrier = carrier || order.carrier || 'AgentPay Express Logistics';
 
   if (targetStatus === 'SHIPPED' && !assignedTracking) {
     assignedTracking = generateTrackingNumber();

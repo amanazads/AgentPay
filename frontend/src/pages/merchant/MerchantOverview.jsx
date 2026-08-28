@@ -54,11 +54,8 @@ export default function MerchantOverview() {
         </div>
 
         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <span className="environment-badge">
-            SANDBOX TEST ENVIRONMENT (RAZORPAY TEST RAILS)
-          </span>
           <Button variant="secondary" onClick={() => navigate('/merchant/ai-commerce')} icon={<Icons.Sparkles size={15} />}>
-            Preview AI Buyer
+            AI Commerce
           </Button>
           <Button variant="primary" onClick={() => navigate('/merchant/products')} icon={<Icons.Plus size={15} />}>
             Add Product
@@ -77,10 +74,10 @@ export default function MerchantOverview() {
           </>
         ) : (
           <>
-            {/* Card 1: AI-Attributed Sandbox GMV */}
+            {/* Card 1: AI-Attributed Revenue */}
             <div className="card-panel" style={{ padding: '1.25rem' }}>
               <div className="text-caption" style={{ textTransform: 'uppercase', fontWeight: 600, color: 'var(--text-subtle)', marginBottom: 4 }}>
-                AI-Attributed Sandbox GMV
+                AI-Attributed Revenue
               </div>
               <div className="text-h1" style={{ fontSize: '1.75rem', color: 'var(--text-main)' }}>
                 {formatCurrency(m.totalRevenue ?? m.aiRevenue ?? 0)}

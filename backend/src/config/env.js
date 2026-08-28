@@ -81,4 +81,5 @@ const env = {
   hasLiveRazorpayKeys,
 };
 
+export { env };
 export default env;

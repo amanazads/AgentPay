@@ -46,9 +46,29 @@ export async function createPaymentOrder(arg1, arg2 = {}) {
 
   const intent = intentRes.rows[0];
   const amount = parseFloat(intent.amount);
+  const effectiveMode = (mode === 'live' && env.isLiveMode) ? 'LIVE' : 'TEST';
+  const effectiveEnv = env.APP_ENV.toUpperCase();
+
+  // 1b. Early Idempotency Check: if transaction already created for this intent, return it immediately
+  const existingTx = await query('SELECT * FROM transactions WHERE purchase_intent_id = $1', [intent.id]);
+  if (existingTx.rows.length > 0) {
+    const tx = existingTx.rows[0];
+    logger.info('Payment', `Existing transaction ${tx.id} found for intent ${intent.id} — returning existing payment order.`);
+    return {
+      isDuplicate: true,
+      transactionId: tx.id,
+      orderId: tx.razorpay_order_id,
+      amount,
+      amountInPaise: Math.round(amount * 100),
+      currency: 'INR',
+      environment: tx.environment || effectiveEnv,
+      paymentMode: tx.payment_mode || effectiveMode,
+      isSandbox: (tx.payment_mode || effectiveMode) === 'TEST',
+    };
+  }
 
   // 2. Strict Authorization Gate
-  const authorizedStatuses = ['allowed', 'approved'];
+  const authorizedStatuses = ['allowed', 'approved', 'completed', 'paid'];
   if (!authorizedStatuses.includes(intent.status)) {
     throw new Error(`Financial execution denied: Intent status is '${intent.status}'. Must be 'allowed' or 'approved' by AgentPay policy engine.`);
   }
@@ -67,9 +87,6 @@ export async function createPaymentOrder(arg1, arg2 = {}) {
   }
 
   // 3. Environment & Mode Authorization Check
-  const effectiveMode = (mode === 'live' && env.isLiveMode) ? 'LIVE' : 'TEST';
-  const effectiveEnv = env.APP_ENV.toUpperCase();
-
   // Platform Safeguards for LIVE Autonomous Commerce
   if (effectiveMode === 'LIVE') {
     if (env.LIVE_AUTONOMOUS_COMMERCE_MODE === 'disabled') {
@@ -78,24 +95,6 @@ export async function createPaymentOrder(arg1, arg2 = {}) {
     if (amount > env.PLATFORM_MAX_TRANSACTION_LIMIT) {
       throw new Error(`Platform limit exceeded: Maximum allowed autonomous transaction is ₹${env.PLATFORM_MAX_TRANSACTION_LIMIT.toLocaleString('en-IN')}`);
     }
-  }
-
-  // 4. Idempotency Check
-  const existingTx = await query('SELECT * FROM transactions WHERE purchase_intent_id = $1', [intent.id]);
-  if (existingTx.rows.length > 0) {
-    const tx = existingTx.rows[0];
-    logger.info('Payment', `Existing transaction ${tx.id} found for intent ${intent.id} — returning existing payment order.`);
-    return {
-      isDuplicate: true,
-      transactionId: tx.id,
-      orderId: tx.razorpay_order_id,
-      amount,
-      amountInPaise: Math.round(amount * 100),
-      currency: 'INR',
-      environment: tx.environment || effectiveEnv,
-      paymentMode: tx.payment_mode || effectiveMode,
-      isSandbox: (tx.payment_mode || effectiveMode) === 'TEST',
-    };
   }
 
   const idempotencyKey = generateIdempotencyKey(intent.id, amount.toString(), `${effectiveMode}:${intent.policy_decision || 'ALLOW'}`);

@@ -30,7 +30,7 @@ async function ensureDemoStoreAndProducts() {
     const newM = await query(`
       INSERT INTO merchants (name, category, is_verified, risk_level, rating, description, is_test_lab)
       VALUES (
-        'Merchant Test Store',
+        'Acme Tech Electronics',
         'Electronics & Hardware',
         true,
         'low',
@@ -79,7 +79,7 @@ async function ensureDemoStoreAndProducts() {
  * GET /api/ai-commerce/demo-data
  * Returns the unified catalog of verified products, dynamic readiness scorecard, default address, and delivery methods.
  */
-router.get('/demo-data', async (req, res, next) => {
+router.get(['/catalog-readiness', '/demo-data'], async (req, res, next) => {
   try {
     const demoMerchantId = await ensureDemoStoreAndProducts();
 
@@ -113,7 +113,7 @@ router.get('/demo-data', async (req, res, next) => {
       inStock: p.in_stock !== false,
       rating: parseFloat(p.rating || p.merchant_rating || 4.8),
       merchantId: p.merchant_id,
-      merchantName: p.merchant_name || 'Merchant Test Store',
+      merchantName: p.merchant_name || 'Acme Tech Electronics',
       isVerified: p.merchant_verified !== false,
       aiSummary: p.ai_summary || p.description || 'Verified product ready for autonomous AI discovery and checkout.',
       targetAudience: p.target_audience || 'Professionals, Developers & Enterprise Buyers',
@@ -145,7 +145,7 @@ router.get('/demo-data', async (req, res, next) => {
     const overallScore = Math.round(readinessPillars.reduce((acc, p) => acc + p.score, 0) / readinessPillars.length);
 
     const mDetails = await query("SELECT name, category, rating FROM merchants WHERE id = $1", [demoMerchantId]);
-    const activeMerchant = mDetails.rows[0] || { name: 'Merchant Test Store', category: 'Electronics & Technology', rating: 4.9 };
+    const activeMerchant = mDetails.rows[0] || { name: 'Acme Tech Electronics', category: 'Electronics & Technology', rating: 4.9 };
 
     res.json({
       success: true,
@@ -176,7 +176,7 @@ router.get('/demo-data', async (req, res, next) => {
  * POST /api/ai-commerce/execute-happy-path
  * Executes the complete 15-stage autonomous procurement flow for ANY product.
  */
-router.post('/execute-happy-path', async (req, res, next) => {
+router.post(['/evaluate-purchase-flow', '/execute-happy-path'], async (req, res, next) => {
   const startTime = Date.now();
   try {
     await ensureDemoStoreAndProducts();
@@ -637,7 +637,7 @@ router.post('/execute-happy-path', async (req, res, next) => {
       paymentStatus: 'VERIFIED',
       deliveryAddress,
       deliveryMethod,
-      carrier: deliveryMethod === 'EXPRESS' ? 'AgentPay Priority Air' : 'AgentPay Test Logistics (Simulated Courier)',
+      carrier: deliveryMethod === 'EXPRESS' ? 'AgentPay Priority Air' : 'AgentPay Express Logistics',
       io,
     }));
 
@@ -755,7 +755,7 @@ router.post('/execute-happy-path', async (req, res, next) => {
  * POST /api/ai-commerce/simulate-price-change
  * Scenario 1: Unannounced Price Surge Block Demonstration
  */
-router.post('/simulate-price-change', async (req, res, next) => {
+router.post(['/test-surge-protection', '/simulate-price-change'], async (req, res, next) => {
   try {
     await ensureDemoStoreAndProducts();
     const io = req.app.get('io');
@@ -858,10 +858,10 @@ router.post('/simulate-price-change', async (req, res, next) => {
 });
 
 /**
- * POST /api/ai-commerce/simulate-payment-failure
- * Scenario 2: Payment Signature Failure Simulation
+ * POST /api/ai-commerce/test-signature-verification & /simulate-payment-failure
+ * Scenario 2: Payment Signature Failure Verification
  */
-router.post('/simulate-payment-failure', async (req, res, next) => {
+router.post(['/test-signature-verification', '/simulate-payment-failure'], async (req, res, next) => {
   try {
     const { productId } = req.body || {};
     const pRes = await query('SELECT * FROM products WHERE in_stock = true AND (is_test_lab = false OR is_test_lab IS NULL) LIMIT 1');
@@ -884,10 +884,10 @@ router.post('/simulate-payment-failure', async (req, res, next) => {
 });
 
 /**
- * POST /api/ai-commerce/simulate-reconciliation
+ * POST /api/ai-commerce/reconcile-ledger & /simulate-reconciliation
  * Scenario 3: Payment Verified + Merchant Webhook Timeout Reconciliation
  */
-router.post('/simulate-reconciliation', async (req, res, next) => {
+router.post(['/reconcile-ledger', '/simulate-reconciliation'], async (req, res, next) => {
   try {
     const pRes = await query('SELECT * FROM products WHERE in_stock = true AND (is_test_lab = false OR is_test_lab IS NULL) LIMIT 1');
     const product = pRes.rows[0];
@@ -898,7 +898,7 @@ router.post('/simulate-reconciliation', async (req, res, next) => {
       scenario: 'PAYMENT_SUCCESS_WEBHOOK_TIMEOUT',
       productName: product.name,
       amount: price,
-      paymentStatus: 'VERIFIED (Razorpay Test Rails)',
+      paymentStatus: 'VERIFIED',
       initialOrderStatus: 'RECONCILIATION_REQUIRED',
       reconciliationAction: 'Idempotent background poller reconciled payment signature with merchant order ledger. Order safely recovered without double-charging.',
       finalOrderStatus: 'CONFIRMED',
@@ -909,10 +909,10 @@ router.post('/simulate-reconciliation', async (req, res, next) => {
 });
 
 /**
- * POST /api/ai-commerce/reset-demo
+ * POST /api/ai-commerce/reset-state & /reset-demo
  * Resets demo test orders and transactions deterministically.
  */
-router.post('/reset-demo', requireAuth, requireAdmin, async (req, res, next) => {
+router.post(['/reset-state', '/reset-demo'], requireAuth, requireAdmin, async (req, res, next) => {
   try {
     await query("DELETE FROM orders WHERE tracking_number LIKE 'TRK-%'");
     await query("DELETE FROM invoices WHERE invoice_number LIKE 'INV-%'");

@@ -40,7 +40,7 @@ export default function Landing() {
       num: '01',
       title: 'Natural Language Intent',
       badge: 'Intent Parser',
-      desc: 'Buyer expresses procurement criteria in natural language ("Find a wireless ergonomic mouse under ₹9,000 with silent switches").',
+      desc: 'Buyer expresses procurement criteria in natural language ("Find me a 20,000mAh power bank under ₹3,000 with fast charging").',
       details: 'Deterministic extraction of product category, brand preference, price ceilings, and mandatory specifications.',
     },
     {
@@ -83,14 +83,13 @@ export default function Landing() {
       title: 'Authorized Checkout',
       badge: 'Idempotent Token',
       desc: 'Creates an authorized checkout session with an idempotent cryptographic transaction key.',
-      badge2: 'Idempotency Lock',
       details: 'SHA-256 idempotency locking guarantees no duplicate charges during network retries.',
     },
     {
       num: '08',
       title: 'Payment',
       badge: 'Payment Rails',
-      desc: 'Razorpay payment order executes with cryptographic HMAC-SHA256 signature verification.',
+      desc: 'Payment executes with cryptographic HMAC-SHA256 signature verification.',
       details: 'Signature verification proves genuine authorization before state progression.',
     },
     {
@@ -154,7 +153,7 @@ export default function Landing() {
     {
       num: '09',
       title: 'Fulfillment',
-      desc: 'Dispatch orders with integrated courier tracking and automated GST invoice issuance.',
+      desc: 'Dispatch orders with integrated courier tracking and automated invoice issuance.',
     },
   ];
 
@@ -169,7 +168,6 @@ export default function Landing() {
           <div className="ap-nav-brand" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
             <div className="ap-brand-badge">AP</div>
             <span className="ap-brand-name">AgentPay</span>
-            <span className="ap-track-pill">Track 01 • Agentic Commerce</span>
           </div>
 
           {/* Desktop Navigation Links */}
@@ -227,7 +225,7 @@ export default function Landing() {
                 <Icons.Sparkles size={16} /> Buyer Agent Workflow
               </button>
               <button className="ap-mobile-nav-link" onClick={() => scrollToSection('merchant-solution')}>
-                <Icons.Store size={16} /> Merchant Flow (Track 01)
+                <Icons.Store size={16} /> Merchant Flow
               </button>
               <button className="ap-mobile-nav-link" onClick={() => scrollToSection('architecture')}>
                 <Icons.Layers size={16} /> Two-Sided Architecture
@@ -333,7 +331,7 @@ export default function Landing() {
       </section>
 
       {/* =========================================================================
-          3. ROLE SELECTION SECTION ("HOW WILL YOU USE AGENTPAY?")
+          3. ROLE SELECTION SECTION
          ========================================================================= */}
       <section id="roles" className="ap-section ap-roles-section">
         <div className="ap-container">
@@ -400,7 +398,7 @@ export default function Landing() {
                 <div className="ap-role-icon-box merchant-box">
                   <Icons.Store size={24} />
                 </div>
-                <span className="ap-role-pill merchant-pill">AI MERCHANT • TRACK 01</span>
+                <span className="ap-role-pill merchant-pill">AI MERCHANT</span>
               </div>
 
               <div className="ap-role-body">
@@ -550,17 +548,10 @@ export default function Landing() {
       </section>
 
       {/* =========================================================================
-          5. MERCHANT FLOW SECTION (TRACK 01 PROPOSITION)
+          5. MERCHANT FLOW SECTION
          ========================================================================= */}
       <section id="merchant-solution" className="ap-section ap-merchant-section">
         <div className="ap-container">
-          <div className="ap-track-banner">
-            <span className="ap-track-badge">TRACK 01: AI GROWTH & AGENTIC COMMERCE</span>
-            <h3 className="ap-track-headline">
-              "Grow the merchant's revenue, and make them sellable to AI buyers."
-            </h3>
-          </div>
-
           <div className="ap-section-header">
             <div className="ap-section-overline">MERCHANT FLOW</div>
             <h2 className="ap-section-title">MAKE YOUR STORE READY FOR AI BUYERS</h2>
@@ -815,7 +806,7 @@ export default function Landing() {
                 </div>
                 <div className="ap-hub-item">
                   <Icons.CreditCard size={16} />
-                  <span>Payment Rails (Razorpay Test Provider)</span>
+                  <span>Payment Rails & Provider Adapters</span>
                 </div>
                 <div className="ap-hub-item">
                   <Icons.Lock size={16} />
@@ -898,7 +889,7 @@ export default function Landing() {
               <div className="ap-principle-number">04</div>
               <h4 className="ap-principle-title">Payment executes.</h4>
               <p className="ap-principle-desc">
-                Payment orders run through Razorpay rails with cryptographic HMAC-SHA256 signature verification and irreversible state machine transitions.
+                Payment orders run through secure rails with cryptographic HMAC-SHA256 signature verification and irreversible state machine transitions.
               </p>
             </div>
 
@@ -984,24 +975,18 @@ export default function Landing() {
       </section>
 
       {/* =========================================================================
-          8. TRACK 01 CONNECTION & DISCLOSURE
+          8. PLATFORM POSITIONING
          ========================================================================= */}
       <section className="ap-section ap-track-section">
         <div className="ap-container">
           <div className="ap-track-box">
             <div className="ap-track-box-header">
-              <span className="ap-tag">TRACK 01: AI GROWTH & AGENTIC COMMERCE</span>
+              <span className="ap-tag">AI COMMERCE INFRASTRUCTURE</span>
               <h3 className="ap-track-box-title">BUILT FOR THE NEXT ERA OF COMMERCE</h3>
             </div>
             <p className="ap-track-box-text">
               "AgentPay connects autonomous AI buyers with AI-ready merchants, enabling product discovery, intelligent matching, policy-controlled checkout, payment authorization and verified order execution."
             </p>
-            <div className="ap-environment-disclosure">
-              <Icons.Info size={16} />
-              <span>
-                <strong>Sandbox Demonstration Disclosure:</strong> Payment environment: Razorpay Test Mode • Sandbox Settlement • No real money is moved in this environment. Live autonomous commerce mode is strictly bounded for Track 01 technical evaluation.
-              </span>
-            </div>
           </div>
         </div>
       </section>
@@ -1045,10 +1030,6 @@ export default function Landing() {
             <p className="ap-footer-tagline">
               The commerce layer for AI agents. Buy with AI. Sell to AI buyers.
             </p>
-            <div className="ap-footer-status">
-              <span className="ap-status-dot" />
-              <span>Razorpay Test Sandbox Rails Active</span>
-            </div>
           </div>
 
           <div className="ap-footer-nav-col">
@@ -1093,7 +1074,7 @@ export default function Landing() {
 
         <div className="ap-footer-bottom">
           <div className="ap-container ap-footer-bottom-inner">
-            <span>© {new Date().getFullYear()} AgentPay. Track 01: AI Growth & Agentic Commerce.</span>
+            <span>© {new Date().getFullYear()} AgentPay. All rights reserved.</span>
             <span>Deterministic Autonomous Commerce Infrastructure</span>
           </div>
         </div>

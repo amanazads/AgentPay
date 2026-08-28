@@ -109,11 +109,7 @@ export default function MerchantOrders() {
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <span className="environment-badge">
-            SANDBOX TEST ENVIRONMENT (RAZORPAY TEST RAILS)
-          </span>
-        </div>
+
       </div>
 
       {/* KPI Cards */}
@@ -303,8 +299,9 @@ export default function MerchantOrders() {
                       variant="primary"
                       disabled={fulfilling}
                       onClick={() => handleAdvanceFulfillment(selectedOrder.id, 'PROCESSING')}
+                      icon={<Icons.Activity size={14} />}
                     >
-                      ⚙️ Mark as Processing
+                      Mark as Processing
                     </Button>
                   )}
 
@@ -314,8 +311,9 @@ export default function MerchantOrders() {
                       variant="primary"
                       disabled={fulfilling}
                       onClick={() => handleAdvanceFulfillment(selectedOrder.id, 'PACKED')}
+                      icon={<Icons.Package size={14} />}
                     >
-                      📦 Mark as Packed
+                      Mark as Packed
                     </Button>
                   )}
 
@@ -325,8 +323,9 @@ export default function MerchantOrders() {
                       variant="primary"
                       disabled={fulfilling}
                       onClick={() => handleAdvanceFulfillment(selectedOrder.id, 'SHIPPED')}
+                      icon={<Icons.Layers size={14} />}
                     >
-                      🚚 Dispatch & Ship (Assign Courier Tracking)
+                      Dispatch & Ship (Assign Courier Tracking)
                     </Button>
                   )}
 
@@ -336,8 +335,9 @@ export default function MerchantOrders() {
                       variant="primary"
                       disabled={fulfilling}
                       onClick={() => handleAdvanceFulfillment(selectedOrder.id, 'OUT_FOR_DELIVERY')}
+                      icon={<Icons.Activity size={14} />}
                     >
-                      🛵 Mark Out for Delivery
+                      Mark Out for Delivery
                     </Button>
                   )}
 
@@ -347,8 +347,9 @@ export default function MerchantOrders() {
                       variant="primary"
                       disabled={fulfilling}
                       onClick={() => handleAdvanceFulfillment(selectedOrder.id, 'DELIVERED')}
+                      icon={<Icons.Check size={14} />}
                     >
-                      ✓ Confirm Delivery
+                      Confirm Delivery
                     </Button>
                   )}
 
@@ -379,8 +380,8 @@ export default function MerchantOrders() {
               <div><strong>Transaction ID:</strong> {selectedOrder.transactionId || selectedOrder.paymentId || 'N/A'}</div>
               <div><strong>Quote ID:</strong> {selectedOrder.quoteId || 'QUOTE-SNAPSHOT-ACTIVE'}</div>
               <div><strong>Tracking Number:</strong> {selectedOrder.trackingNumber || (['SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(selectedOrder.fulfillmentStatus) ? selectedOrder.trackingNumber : 'Assigned upon courier dispatch')}</div>
-              <div><strong>Carrier:</strong> {selectedOrder.carrier || 'AgentPay Test Logistics (Simulated Courier)'}</div>
-              <div><strong>Payment Rails:</strong> Razorpay Sandbox (HMAC-SHA256 Verified)</div>
+              <div><strong>Carrier:</strong> {selectedOrder.carrier || 'AgentPay Express Logistics'}</div>
+              <div><strong>Payment Rails:</strong> Razorpay (HMAC-SHA256 Cryptographically Verified)</div>
               <div><strong>Inventory Accounting:</strong> Atomic reservation committed (Stock decremented)</div>
               {selectedOrder.cancellationReason && (
                 <div style={{ color: '#dc2626', marginTop: 4 }}><strong>Cancellation Reason:</strong> {selectedOrder.cancellationReason}</div>

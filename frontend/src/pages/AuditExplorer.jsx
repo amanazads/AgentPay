@@ -101,7 +101,7 @@ export default function AuditExplorer() {
                     className={`activity-icon ${isAllow ? 'allow' : isApproval ? 'approval' : isBlock ? 'block' : 'info'}`}
                     style={{ width: '26px', height: '26px', fontSize: '11px' }}
                   >
-                    {isAllow ? '✓' : isApproval ? '✋' : isBlock ? '✕' : '◈'}
+                    {isAllow ? '✓' : isApproval ? '!' : isBlock ? '✕' : '◈'}
                   </div>
 
                   <div>

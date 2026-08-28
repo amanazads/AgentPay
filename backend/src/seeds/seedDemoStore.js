@@ -1,16 +1,17 @@
 import { query } from '../config/database.js';
 
 export async function seedDemoStore() {
-  console.log('Seeding AgentPay Demo Store & AI-Readable Catalog...');
+  console.log('Seeding Acme Tech Electronics & AI-Readable Catalog...');
 
-  // 1. Ensure AgentPay Demo Store exists in merchants
-  let demoMerchantRes = await query("SELECT id FROM merchants WHERE name = 'AgentPay Demo Store'");
+  // 1. Ensure Acme Tech Electronics exists in merchants
+  await query("UPDATE merchants SET name = 'Acme Tech Electronics' WHERE name = 'AgentPay Demo Store'");
+  let demoMerchantRes = await query("SELECT id FROM merchants WHERE name = 'Acme Tech Electronics' OR name = 'AgentPay Demo Store'");
   let merchantId;
 
   if (demoMerchantRes.rows.length === 0) {
     const insertRes = await query(`
       INSERT INTO merchants (name, category, description, is_verified, rating, tier)
-      VALUES ('AgentPay Demo Store', 'Electronics & Technology', 'Official AgentPay autonomous commerce demo merchant with live AI-readable catalog and instantaneous checkout verification.', true, 4.95, 'tier_1')
+      VALUES ('Acme Tech Electronics', 'Electronics & Technology', 'Premier verified electronics & computing hardware supplier with live AI-readable catalog and instantaneous checkout verification.', true, 4.95, 'tier_1')
       RETURNING id
     `);
     merchantId = insertRes.rows[0].id;

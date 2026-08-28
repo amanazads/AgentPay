@@ -29,7 +29,7 @@ export default function AICommerceDemoRunner({ initialProductId = null, initialS
   const loadDemoData = async () => {
     try {
       setLoading(true);
-      const res = await api.getDemoCommerceData();
+      const res = await api.getAICommerceReadinessData();
       setDemoData(res);
 
       if (res?.products?.length > 0) {
@@ -43,7 +43,7 @@ export default function AICommerceDemoRunner({ initialProductId = null, initialS
         handleSelectProduct(initial);
       }
     } catch (e) {
-      console.error('Failed to load demo data', e);
+      console.error('Failed to load readiness data', e);
     } finally {
       setLoading(false);
     }
@@ -66,13 +66,13 @@ export default function AICommerceDemoRunner({ initialProductId = null, initialS
     setExecResult(null);
 
     try {
-      // Step progression simulation for visual clarity
+      // Step progression for visual clarity
       for (let s = 1; s <= 6; s++) {
         setCurrentStepIndex(s);
         await new Promise((r) => setTimeout(r, 200));
       }
 
-      const result = await api.executeAICommerceDemo({
+      const result = await api.executeAutonomousCommercePreview({
         productId: selectedProduct?.id,
         prompt: customPrompt,
         deliveryMethod,
@@ -80,8 +80,8 @@ export default function AICommerceDemoRunner({ initialProductId = null, initialS
       setExecResult(result);
       setCurrentStepIndex(15);
     } catch (err) {
-      console.error('Demo execution error', err);
-      alert('Demo execution failed: ' + (err.message || 'Server error'));
+      console.error('Execution error', err);
+      alert('Execution failed: ' + (err.message || 'Server error'));
     } finally {
       setIsExecuting(false);
     }
@@ -98,14 +98,14 @@ export default function AICommerceDemoRunner({ initialProductId = null, initialS
         await new Promise((r) => setTimeout(r, 200));
       }
 
-      const result = await api.simulatePriceChangeFailure({
+      const result = await api.testPriceSurgeProtection({
         productId: selectedProduct?.id,
       });
       setExecResult(result);
       setCurrentStepIndex(8);
     } catch (err) {
-      console.error('Failure simulation error', err);
-      alert('Simulation error: ' + (err.message || 'Server error'));
+      console.error('Surge protection error', err);
+      alert('Protection error: ' + (err.message || 'Server error'));
     } finally {
       setIsExecuting(false);
     }
@@ -115,10 +115,10 @@ export default function AICommerceDemoRunner({ initialProductId = null, initialS
     setIsExecuting(true);
     setExecResult(null);
     try {
-      const result = await api.simulatePaymentFailure({ productId: selectedProduct?.id });
+      const result = await api.testSignatureVerification({ productId: selectedProduct?.id });
       setExecResult(result);
     } catch (err) {
-      alert('Payment failure demo error: ' + err.message);
+      alert('Signature verification test error: ' + err.message);
     } finally {
       setIsExecuting(false);
     }
@@ -128,17 +128,17 @@ export default function AICommerceDemoRunner({ initialProductId = null, initialS
     setIsExecuting(true);
     setExecResult(null);
     try {
-      const result = await api.simulateReconciliation({ productId: selectedProduct?.id });
+      const result = await api.testLedgerReconciliation({ productId: selectedProduct?.id });
       setExecResult(result);
     } catch (err) {
-      alert('Reconciliation demo error: ' + err.message);
+      alert('Reconciliation test error: ' + err.message);
     } finally {
       setIsExecuting(false);
     }
   };
 
   const handleReset = async () => {
-    await api.resetAICommerceDemo();
+    await api.resetAICommerceState();
     setExecResult(null);
     setCurrentStepIndex(0);
     loadDemoData();
@@ -156,18 +156,18 @@ export default function AICommerceDemoRunner({ initialProductId = null, initialS
       <div className="demo-runner-header">
         <div className="demo-header-title-row">
           <div className="demo-badge-wrap">
-            <span className="demo-env-badge">TRACK 01 • AI AGENT COMMERCE</span>
-            <span className="demo-mode-badge">AI BUYER SIMULATION & EXECUTION</span>
+            <span className="demo-env-badge">AI AGENT COMMERCE</span>
+            <span className="demo-mode-badge">AI BUYER COMMERCE ENGINE</span>
           </div>
-          <h1 className="demo-main-title">AI Buyer Simulation Engine</h1>
+          <h1 className="demo-main-title">AI Buyer Commerce Engine</h1>
           <p className="demo-main-sub">
             Preview how autonomous AI buyers discover your catalog, compare products, evaluate spending policies, and execute verified orders against your store.
           </p>
         </div>
 
         <div className="demo-header-actions">
-          <Button variant="secondary" size="sm" onClick={handleReset} icon={<Icons.Clock size={14} />}>
-            Reset Simulation
+          <Button variant="secondary" size="sm" onClick={handleReset} icon={<Icons.RefreshCw size={14} />}>
+            Reset State
           </Button>
 
           {onBackToReadiness && (
@@ -183,7 +183,7 @@ export default function AICommerceDemoRunner({ initialProductId = null, initialS
         <div className="shopping-bar-header">
           <div className="shopping-bar-title">
             <Icons.Sparkles size={16} />
-            <span>Simulated AI Buyer Request:</span>
+            <span>AI Buyer Request Preview:</span>
           </div>
           <span className="shopping-bar-hint">Autonomous agent natural language intent</span>
         </div>
@@ -201,7 +201,7 @@ export default function AICommerceDemoRunner({ initialProductId = null, initialS
             disabled={isExecuting}
             icon={isExecuting ? <Icons.Clock size={15} /> : <Icons.Sparkles size={15} />}
           >
-            {isExecuting ? 'Agent Evaluating...' : 'Simulate AI Purchase'}
+            {isExecuting ? 'Agent Evaluating...' : 'Run Autonomous Purchase Flow'}
           </Button>
         </div>
       </div>
@@ -210,7 +210,6 @@ export default function AICommerceDemoRunner({ initialProductId = null, initialS
       <div className="product-selector-section">
         <div className="product-selector-header">
           <div className="selector-title-wrap">
-            <span className="selector-icon">🏪</span>
             <span className="selector-title">Your Store Catalog ({demoData?.catalogCount || filteredProducts.length} Active SKUs)</span>
           </div>
 
@@ -263,28 +262,28 @@ export default function AICommerceDemoRunner({ initialProductId = null, initialS
             className={`scenario-tab-btn ${activeTab === 'happy_path' ? 'active-happy' : ''}`}
             onClick={() => setActiveTab('happy_path')}
           >
-            ⚡ End-to-End Commerce Flow
+            End-to-End Commerce Flow
           </button>
           <button
             type="button"
             className={`scenario-tab-btn ${activeTab === 'failure_demo' ? 'active-fail' : ''}`}
             onClick={() => setActiveTab('failure_demo')}
           >
-            ⚠️ Price Surge Protection (+28.5%)
+            Price Surge Protection (+28.5%)
           </button>
           <button
             type="button"
             className={`scenario-tab-btn ${activeTab === 'payment_fail' ? 'active-fail' : ''}`}
             onClick={() => setActiveTab('payment_fail')}
           >
-            ❌ Payment Signature Failure
+            Invalid Payment Signature Block
           </button>
           <button
             type="button"
             className={`scenario-tab-btn ${activeTab === 'reconcile' ? 'active-happy' : ''}`}
             onClick={() => setActiveTab('reconcile')}
           >
-            🔄 Webhook Reconciliation
+            Webhook Order Reconciliation
           </button>
         </div>
 
@@ -390,8 +389,9 @@ export default function AICommerceDemoRunner({ initialProductId = null, initialS
                 size="sm"
                 onClick={() => setShowInvoiceModal(true)}
                 style={{ marginLeft: 'auto', background: '#ffffff', color: '#0f172a' }}
+                icon={<Icons.FileText size={13} />}
               >
-                📄 View Official Invoice
+                View Official Invoice
               </Button>
             )}
           </div>
@@ -431,7 +431,7 @@ export default function AICommerceDemoRunner({ initialProductId = null, initialS
             <div style={{ marginTop: '1.25rem', border: '1px solid #e2e8f0', borderRadius: 'var(--radius-md)', padding: '1.25rem', backgroundColor: '#f8fafc' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <span style={{ fontSize: '1.1rem' }}>💡</span>
+                  <Icons.Sparkles size={16} />
                   <span style={{ fontWeight: 700, fontSize: '0.9375rem', color: '#0f172a' }}>
                     Explainable AI Recommendation ("Why this product?")
                   </span>
@@ -483,7 +483,7 @@ export default function AICommerceDemoRunner({ initialProductId = null, initialS
             <div style={{ marginTop: '1rem', border: '1px solid #e2e8f0', borderRadius: 'var(--radius-md)', padding: '1rem 1.25rem', backgroundColor: '#ffffff' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                 <span style={{ fontWeight: 700, fontSize: '0.875rem', color: '#0f172a' }}>
-                  📊 Candidate Evaluation Matrix ({execResult.candidateEvaluation.totalEvaluated} Store SKUs Evaluated)
+                  Candidate Evaluation Matrix ({execResult.candidateEvaluation.totalEvaluated} Store SKUs Evaluated)
                 </span>
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-subtle)' }}>
                   {execResult.candidateEvaluation.eligibleCandidates?.length || 1} Eligible • {execResult.candidateEvaluation.rejectedCandidates?.length || 0} Filtered Out
@@ -508,7 +508,7 @@ export default function AICommerceDemoRunner({ initialProductId = null, initialS
             <div style={{ marginTop: '1rem', border: '1px solid #e2e8f0', borderRadius: 'var(--radius-md)', padding: '1rem 1.25rem', backgroundColor: '#f8fafc' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                 <span style={{ fontWeight: 700, fontSize: '0.875rem', color: '#0f172a' }}>
-                  ⚙️ Traceable Technical IDs & Verification Metadata
+                  Traceable Technical IDs & Verification Metadata
                 </span>
               </div>
 
@@ -627,7 +627,7 @@ export default function AICommerceDemoRunner({ initialProductId = null, initialS
               <div style={{ textAlign: 'right' }}>
                 <div className="inv-sec-title">Payment Reference:</div>
                 <div style={{ fontFamily: 'monospace', fontSize: '0.8125rem' }}>{execResult.invoice.payment_reference}</div>
-                <div style={{ fontSize: '0.8125rem', color: '#059669', fontWeight: 700 }}>Status: PAID (Razorpay Test Rails)</div>
+                <div style={{ fontSize: '0.8125rem', color: '#059669', fontWeight: 700 }}>Status: PAID (Verified)</div>
               </div>
             </div>
 
@@ -652,15 +652,15 @@ export default function AICommerceDemoRunner({ initialProductId = null, initialS
                   <td>₹{parseFloat(execResult.invoice.delivery_fee || 0).toLocaleString('en-IN')}</td>
                 </tr>
                 <tr>
-                  <td colSpan={3} style={{ textAlign: 'right', fontWeight: 700 }}>Total Demo GMV:</td>
+                  <td colSpan={3} style={{ textAlign: 'right', fontWeight: 700 }}>Total Order Amount:</td>
                   <td style={{ fontWeight: 800, color: '#2563eb' }}>₹{parseFloat(execResult.invoice.total_amount).toLocaleString('en-IN')}</td>
                 </tr>
               </tbody>
             </table>
 
             <div style={{ textAlign: 'right', marginTop: '1.25rem' }}>
-              <Button variant="primary" size="sm" onClick={() => window.print()}>
-                🖨️ Print / Save PDF
+              <Button variant="primary" size="sm" onClick={() => window.print()} icon={<Icons.FileText size={13} />}>
+                Print / Save PDF
               </Button>
             </div>
           </div>

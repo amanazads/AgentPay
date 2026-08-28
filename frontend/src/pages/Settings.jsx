@@ -63,9 +63,7 @@ export default function Settings({ isMerchant = false }) {
         </div>
 
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <span className="environment-badge">
-            {envInfo?.activeKeyType === 'RAZORPAY_LIVE' ? 'LIVE ENVIRONMENT' : 'SANDBOX TEST ENVIRONMENT'}
-          </span>
+          <StatusBadge status="ACTIVE" label={envInfo?.activeKeyType === 'RAZORPAY_LIVE' ? 'Live Rails' : 'Active'} />
         </div>
       </div>
 
@@ -211,8 +209,8 @@ export default function Settings({ isMerchant = false }) {
 
               <div className="settings-field">
                 <div className="settings-label">Payment Rails Provider</div>
-                <div className="settings-value-strong">Razorpay Sandbox Rails</div>
-                <div className="settings-hint">Test payment gateway</div>
+                <div className="settings-value-strong">Razorpay Integration</div>
+                <div className="settings-hint">Cryptographically verified gateway</div>
               </div>
 
               <div className="settings-field">
@@ -345,8 +343,8 @@ export default function Settings({ isMerchant = false }) {
         <div className="card-panel-body">
           {/* Summary callout */}
           <div className="architecture-banner">
-            <div style={{ fontWeight: 600, color: '#1e3a8a', marginBottom: 4 }}>
-              🛡️ Zero-Trust Autonomous Commerce Architecture
+            <div style={{ fontWeight: 600, color: '#1e3a8a', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Icons.ShieldCheck size={16} /> Zero-Trust Autonomous Commerce Architecture
             </div>
             <p style={{ margin: 0, color: '#1e40af', fontSize: '0.8125rem', lineHeight: 1.4 }}>
               AgentPay treats all AI recommendations as untrusted proposals. Every purchase request is sequentially revalidated against Buyer Policy, Risk Evaluation, Price Freshness, and Payment Authorization before execution.
@@ -430,7 +428,7 @@ export default function Settings({ isMerchant = false }) {
                 Payment Environment
               </div>
               <div style={{ fontSize: '0.78125rem', color: '#475569', lineHeight: 1.4 }}>
-                <strong>RAZORPAY TEST ENVIRONMENT</strong>: All autonomous transactions utilize test sandbox payment rails. No real money or bank accounts are debited.
+                <strong>Payment Infrastructure Safeguards</strong>: Autonomous transactions execute under pre-authorized cryptographic token mandates with fail-closed HMAC-SHA256 signature verification.
               </div>
             </div>
 

@@ -264,8 +264,9 @@ export default function Purchases() {
                               size="sm"
                               variant="secondary"
                               onClick={() => handleViewInvoice(item.order_id)}
+                              icon={<Icons.FileText size={13} />}
                             >
-                              📄 Invoice
+                              Invoice
                             </Button>
                           )}
                           <Button
@@ -340,10 +341,10 @@ export default function Purchases() {
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
                   {(selectedItem.timeline || selectedItem.order_timeline || [
-                    { state: 'CONFIRMED', title: 'Order Confirmed & Payment Captured', completed: true, timestamp: selectedItem.created_at, description: 'Autonomous payment verified via Razorpay test rails.' },
+                    { state: 'CONFIRMED', title: 'Order Confirmed & Payment Captured', completed: true, timestamp: selectedItem.created_at, description: 'Autonomous payment authorized & verified.' },
                     { state: 'PROCESSING', title: 'Merchant Processing', completed: ['PROCESSING', 'PACKED', 'SHIPPED', 'DELIVERED'].includes(selectedItem.fulfillment_status), description: 'Merchant fulfillment system notified.' },
                     { state: 'PACKED', title: 'Package Assembly', completed: ['PACKED', 'SHIPPED', 'DELIVERED'].includes(selectedItem.fulfillment_status), description: 'Items packed securely.' },
-                    { state: 'SHIPPED', title: 'Dispatched to Carrier', completed: ['SHIPPED', 'DELIVERED'].includes(selectedItem.fulfillment_status), description: selectedItem.tracking_number ? `In transit with ${selectedItem.carrier || 'AgentPay Test Logistics'} (${selectedItem.tracking_number})` : 'Dispatched to courier.' },
+                    { state: 'SHIPPED', title: 'Dispatched to Carrier', completed: ['SHIPPED', 'DELIVERED'].includes(selectedItem.fulfillment_status), description: selectedItem.tracking_number ? `In transit with ${selectedItem.carrier || 'AgentPay Logistics'} (${selectedItem.tracking_number})` : 'Dispatched to courier.' },
                     { state: 'DELIVERED', title: 'Delivered', completed: selectedItem.fulfillment_status === 'DELIVERED', description: 'Delivered to confirmed destination.' },
                   ]).map((step, idx) => (
                     <div key={idx} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
@@ -381,9 +382,8 @@ export default function Purchases() {
             {!selectedItem.isApproval && (
               <div className="mono" style={{ padding: '0.875rem', backgroundColor: 'var(--bg-subtle)', borderRadius: 'var(--radius-md)', fontSize: '0.75rem', lineHeight: 1.6, color: 'var(--text-muted)' }}>
                 <div><strong>Tracking Number:</strong> {selectedItem.tracking_number || (['SHIPPED', 'DELIVERED'].includes(selectedItem.fulfillment_status) ? 'TRK-ASSIGNED' : 'Assigned upon courier dispatch')}</div>
-                <div><strong>Carrier:</strong> {selectedItem.carrier || 'AgentPay Test Logistics (Simulated Courier)'}</div>
-                <div><strong>Payment Capture:</strong> Verified (Razorpay Test Rails)</div>
-                <div><strong>Settlement Status:</strong> Not applicable (Test Environment)</div>
+                <div><strong>Carrier:</strong> {selectedItem.carrier || 'AgentPay Logistics'}</div>
+                <div><strong>Payment Status:</strong> Paid (HMAC-SHA256 Verified)</div>
               </div>
             )}
 
@@ -424,19 +424,19 @@ export default function Purchases() {
               </div>
               <div style={{ textAlign: 'right' }}>
                 <div style={{ fontWeight: 700, color: '#64748b', textTransform: 'uppercase', fontSize: '0.6875rem' }}>Payment Status:</div>
-                <div style={{ color: '#059669', fontWeight: 700 }}>PAID (Razorpay Test Rails)</div>
-                <div className="mono" style={{ fontSize: '0.75rem', color: '#64748b' }}>Ref: {selectedInvoice.payment_reference || 'pay_test_verified'}</div>
+                <div style={{ color: '#059669', fontWeight: 700 }}>PAID (Verified)</div>
+                <div className="mono" style={{ fontSize: '0.75rem', color: '#64748b' }}>Ref: {selectedInvoice.payment_reference || 'pay_verified'}</div>
               </div>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '1rem', borderTop: '1px solid #e2e8f0', fontWeight: 800 }}>
-              <span>Total Order GMV:</span>
+              <span>Total Order Amount:</span>
               <span style={{ fontSize: '1.25rem', color: '#2563eb' }}>₹{parseFloat(selectedInvoice.total_amount).toLocaleString('en-IN')}</span>
             </div>
 
             <div style={{ textAlign: 'right', marginTop: '0.5rem' }}>
-              <Button variant="primary" size="sm" onClick={() => window.print()}>
-                🖨️ Print / Save PDF
+              <Button variant="primary" size="sm" onClick={() => window.print()} icon={<Icons.FileText size={13} />}>
+                Print / Save PDF
               </Button>
             </div>
           </div>

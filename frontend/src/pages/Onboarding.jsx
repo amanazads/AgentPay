@@ -319,7 +319,7 @@ export default function Onboarding() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
                   <strong style={{ fontSize: '0.875rem', color: '#0f172a', display: 'block' }}>UPI Auto-Pay Mandate</strong>
-                  <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Razorpay Test Sandbox • Limit: {formatCurrency(autoLimit)}</span>
+                  <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Razorpay Payment Mandate • Single Tx Limit: {formatCurrency(autoLimit)}</span>
                 </div>
                 <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#065f46', backgroundColor: '#ecfdf5', padding: '2px 8px', borderRadius: 4 }}>
                   PRE-CONFIGURED

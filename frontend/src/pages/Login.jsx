@@ -19,7 +19,6 @@ export default function Login({ defaultMode = 'login' }) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
-  const [showDemoAccess, setShowDemoAccess] = useState(false);
 
   const { login, signup, loginWithGoogle } = useAuth();
   const navigate = useNavigate();
@@ -30,17 +29,6 @@ export default function Login({ defaultMode = 'login' }) {
     setSelectedRole(role);
     localStorage.setItem('agentpay_initial_role', role);
     setError(null);
-  };
-
-  const handleQuickFill = (role) => {
-    handleRoleSelect(role);
-    if (role === 'MERCHANT') {
-      setEmail('merchant@agentpay.com');
-      setPassword('merchant123');
-    } else {
-      setEmail('buyer@agentpay.com');
-      setPassword('buyer123');
-    }
   };
 
   const handleSubmit = async (e) => {
@@ -103,7 +91,6 @@ export default function Login({ defaultMode = 'login' }) {
           <div className="hero-brand-header">
             <div className="hero-logo-icon">AP</div>
             <span className="hero-logo-text">AgentPay</span>
-            <span className="hero-track-pill">Track 01 • Agentic Commerce</span>
           </div>
 
           {/* Core Positioning */}
@@ -320,7 +307,7 @@ export default function Login({ defaultMode = 'login' }) {
                   type="email"
                   required
                   className="auth-input-modern"
-                  placeholder={isMerchant ? 'merchant@agentpay.com' : 'buyer@agentpay.com'}
+                  placeholder={isMerchant ? 'merchant@yourstore.com' : 'buyer@yourdomain.com'}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                 />
@@ -400,46 +387,6 @@ export default function Login({ defaultMode = 'login' }) {
                   Create an account
                 </button>
               </p>
-            )}
-          </div>
-
-          {/* Discreet Demo Access for Technical Evaluation / Judges */}
-          <div className="auth-demo-access-drawer">
-            <button
-              type="button"
-              className="auth-demo-toggle-btn"
-              onClick={() => setShowDemoAccess(!showDemoAccess)}
-            >
-              <Icons.Key size={13} />
-              <span>Demo access</span>
-              <Icons.ChevronRight
-                size={12}
-                style={{ transform: showDemoAccess ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s ease' }}
-              />
-            </button>
-
-            {showDemoAccess && (
-              <div className="auth-demo-credentials-box">
-                <div className="auth-demo-caption">
-                  Pre-configured accounts with sample catalogs & policies:
-                </div>
-                <div className="auth-demo-btn-row">
-                  <button
-                    type="button"
-                    className="auth-demo-fill-pill"
-                    onClick={() => handleQuickFill('BUYER')}
-                  >
-                    <Icons.Sparkles size={12} /> Fill Buyer (buyer@agentpay.com)
-                  </button>
-                  <button
-                    type="button"
-                    className="auth-demo-fill-pill"
-                    onClick={() => handleQuickFill('MERCHANT')}
-                  >
-                    <Icons.Store size={12} /> Fill Merchant (merchant@agentpay.com)
-                  </button>
-                </div>
-              </div>
             )}
           </div>
         </div>

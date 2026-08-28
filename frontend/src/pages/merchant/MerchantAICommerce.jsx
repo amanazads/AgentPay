@@ -25,7 +25,7 @@ export default function MerchantAICommerce() {
       setLoading(true);
       const [readinessRes, demoDataRes] = await Promise.all([
         api.getMerchantAICommerce().catch(() => null),
-        api.getDemoCommerceData().catch(() => null),
+        api.getAICommerceReadinessData().catch(() => null),
       ]);
       setData(readinessRes);
       setDemoState(demoDataRes);
@@ -89,15 +89,12 @@ export default function MerchantAICommerce() {
         </div>
 
         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <span className="environment-badge">
-            SANDBOX TEST ENVIRONMENT (RAZORPAY TEST RAILS)
-          </span>
           <Button
             variant="primary"
             onClick={() => handleLaunchProductDemo(products[0]?.id || null, 'happy_path')}
             icon={<Icons.Sparkles size={16} />}
           >
-            Simulate AI Purchase
+            Preview Autonomous Purchase
           </Button>
         </div>
       </div>
@@ -134,7 +131,7 @@ export default function MerchantAICommerce() {
                 onClick={() => handleLaunchProductDemo(products[0]?.id || null, 'happy_path')}
                 icon={<Icons.Sparkles size={14} />}
               >
-                Launch Track 01 Demo
+                Preview Autonomous Purchase Flow
               </Button>
             </div>
           </div>
