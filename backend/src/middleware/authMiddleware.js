@@ -19,13 +19,6 @@ export function authenticateUser(req, res, next) {
     return next();
   }
 
-  // Handle legacy format fallback if necessary
-  if (token.startsWith('agentpay_jwt_')) {
-    const parts = token.replace('Bearer ', '').split('_');
-    req.user = { id: parts[2] || parts[1] || 'user_default', role: 'BUYER' };
-    return next();
-  }
-
   const decoded = verifyAccessToken(token);
   if (decoded) {
     req.user = decoded;

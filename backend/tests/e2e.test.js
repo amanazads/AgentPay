@@ -3,6 +3,7 @@ import { evaluatePurchaseIntent } from '../src/services/decisionEngine.js';
 import { createPaymentOrder, verifyPayment } from '../src/services/paymentService.js';
 import { processApproval } from '../src/services/approvalService.js';
 import { query } from '../src/config/database.js';
+import env from '../src/config/env.js';
 
 describe('AgentPay End-to-End Autonomous Commerce Lifecycle', () => {
   let policyId;
@@ -118,11 +119,18 @@ describe('AgentPay End-to-End Autonomous Commerce Lifecycle', () => {
     expect(paymentOrder.transactionId).toBeDefined();
 
     // 4. Verify Payment Signature
+    const paymentId = `pay_${crypto.randomBytes(8).toString('hex')}`;
+    const hmacBody = `${paymentOrder.orderId}|${paymentId}`;
+    const razorpaySignature = crypto
+      .createHmac('sha256', env.RAZORPAY_TEST_KEY_SECRET)
+      .update(hmacBody)
+      .digest('hex');
+
     const verificationResult = await verifyPayment({
       transactionId: paymentOrder.transactionId,
-      razorpayPaymentId: `pay_test_${Math.random().toString(36).substring(2, 10)}`,
+      razorpayPaymentId: paymentId,
       razorpayOrderId: paymentOrder.orderId,
-      razorpaySignature: 'valid_test_signature',
+      razorpaySignature,
     });
 
     expect(verificationResult.success).toBe(true);
@@ -177,11 +185,18 @@ describe('AgentPay End-to-End Autonomous Commerce Lifecycle', () => {
     expect(paymentOrder.transactionId).toBeDefined();
 
     // 4. Verify Final Settlement
+    const paymentId2 = `pay_${crypto.randomBytes(8).toString('hex')}`;
+    const hmacBody2 = `${paymentOrder.orderId}|${paymentId2}`;
+    const razorpaySignature2 = crypto
+      .createHmac('sha256', env.RAZORPAY_TEST_KEY_SECRET)
+      .update(hmacBody2)
+      .digest('hex');
+
     const verificationResult = await verifyPayment({
       transactionId: paymentOrder.transactionId,
-      razorpayPaymentId: `pay_test_${Math.random().toString(36).substring(2, 10)}`,
+      razorpayPaymentId: paymentId2,
       razorpayOrderId: paymentOrder.orderId,
-      razorpaySignature: 'valid_test_signature',
+      razorpaySignature: razorpaySignature2,
     });
 
     expect(verificationResult.success).toBe(true);

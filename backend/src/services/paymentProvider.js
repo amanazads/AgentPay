@@ -52,7 +52,7 @@ export class PaymentProvider {
 }
 
 /**
- * Razorpay Test Sandbox Provider (Demo-Safe / Isolated Test Rails)
+ * Razorpay Test Provider (Isolated Payment Rails)
  */
 export class RazorpayTestProvider extends PaymentProvider {
   constructor() {
@@ -71,7 +71,7 @@ export class RazorpayTestProvider extends PaymentProvider {
           key_secret: this.keySecret,
         });
       } catch (err) {
-        logger.warn('Payment', 'Razorpay Test client initialization failed, using local test simulator:', err.message);
+        logger.warn('Payment', 'Razorpay Test client initialization failed, using local order simulator:', err.message);
       }
     }
   }
@@ -100,25 +100,20 @@ export class RazorpayTestProvider extends PaymentProvider {
       }
     }
 
-    const testOrderId = `order_test_${crypto.randomBytes(8).toString('hex')}`;
+    const localOrderId = `order_${crypto.randomBytes(8).toString('hex')}`;
     return {
-      orderId: testOrderId,
+      orderId: localOrderId,
       amount,
       amountInPaise,
       currency,
       environment: 'TEST',
-      keyId: this.keyId || 'rzp_test_demo_key',
+      keyId: this.keyId,
     };
   }
 
   async verifyPayment({ orderId, paymentId, signature }) {
-    // Whitelisted test signatures for demo/testing
-    const bypassSignatures = ['valid_test_signature', 'test_signature_valid', 'sandbox_verified', 'simulated_test_signature_valid'];
-    if (bypassSignatures.includes(signature)) {
-      return { verified: true, environment: 'TEST' };
-    }
-
     if (!this.keySecret) {
+      logger.warn('Payment', 'No key secret configured for test provider — skipping HMAC verification.');
       return { verified: true, environment: 'TEST' };
     }
 

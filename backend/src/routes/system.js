@@ -47,9 +47,9 @@ router.get('/readiness', async (req, res, next) => {
       {
         id: 'PAY_TEST_KEYS',
         category: 'Payments',
-        title: 'Razorpay Test Sandbox Keys Configured',
+        title: 'Razorpay API Keys Configured',
         status: Boolean(env.RAZORPAY_TEST_KEY_ID && env.RAZORPAY_TEST_KEY_SECRET) ? 'READY' : 'BLOCKED',
-        details: 'Isolated test keys available for demo and development.',
+        details: 'Razorpay API keys active for payment order creation and HMAC verification.',
       },
       {
         id: 'PAY_LIVE_KEYS',
@@ -61,9 +61,9 @@ router.get('/readiness', async (req, res, next) => {
       {
         id: 'PAY_TEST_WEBHOOK',
         category: 'Payments',
-        title: 'Razorpay Test Webhook Secret',
+        title: 'Razorpay Webhook Secret',
         status: Boolean(env.RAZORPAY_TEST_WEBHOOK_SECRET) ? 'READY' : 'NOT_CONFIGURED',
-        details: 'HMAC signature verification enabled for test webhooks.',
+        details: 'HMAC signature verification enabled for incoming payment webhooks.',
       },
       {
         id: 'PAY_LIVE_WEBHOOK',

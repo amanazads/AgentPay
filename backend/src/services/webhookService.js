@@ -37,9 +37,6 @@ export async function processRazorpayWebhook({
     } catch (e) {
       signatureVerified = false;
     }
-  } else if (environment === 'TEST' && (!secret || signature === 'valid_test_signature')) {
-    // Whitelisted test sandbox signature
-    signatureVerified = true;
   }
 
   if (!signatureVerified && environment === 'LIVE') {

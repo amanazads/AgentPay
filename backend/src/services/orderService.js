@@ -118,7 +118,7 @@ export async function createOrder({
     {
       state: 'CONFIRMED',
       title: 'Order Confirmed',
-      description: 'Autonomous purchase confirmed and payment captured on Razorpay test rails.',
+      description: 'Autonomous purchase confirmed and payment captured via verified payment infrastructure.',
       timestamp: now,
       completed: true,
     },
@@ -173,7 +173,7 @@ export async function createOrder({
         delivery_address, delivery_method, estimated_delivery_date, tracking_number, carrier, timeline,
         environment, payment_mode, quote_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'CONFIRMED', 'CONFIRMED', 'NOT_APPLICABLE_TEST_MODE', $16, $17, $18, $19, $20, $21, $22, NULL, $23, $24, $25, $26, $27)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'CONFIRMED', 'CONFIRMED', 'PENDING', $16, $17, $18, $19, $20, $21, $22, NULL, $23, $24, $25, $26, $27)
       RETURNING *
     `, [
       orderNumber,

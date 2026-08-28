@@ -89,12 +89,11 @@ export class MerchantConnectionService {
         inventoryStatus: m.inventory_status || 'FRESH',
         checkoutStatus: isConnected ? 'AVAILABLE' : 'UNAVAILABLE',
         paymentProviderStatus: m.payment_provider_status || 'AVAILABLE',
-        paymentProvider: 'Razorpay Sandbox Rails',
+        paymentProvider: 'Razorpay Payment Gateway',
         connectedAt: m.connected_at,
         lastSyncedAt: m.last_synced_at,
         lastVerifiedAt: m.last_verified_at,
         healthDiagnostics: diagnostics,
-        isSandboxConnector: true,
       };
     });
   }

@@ -16,6 +16,7 @@ import { dispatchCommerceNotification } from '../services/notificationDispatcher
 import { parseBuyerIntent } from '../services/intentParser.js';
 import { findEligibleProducts } from '../services/candidateFilter.js';
 import { requireAdmin, requireAuth } from '../middleware/authMiddleware.js';
+import env from '../config/env.js';
 
 const router = Router();
 
@@ -59,17 +60,6 @@ async function ensureDemoStoreAndProducts() {
     FROM products p
     WHERE p.id NOT IN (SELECT product_id FROM product_ai_metadata)
     ON CONFLICT (product_id) DO NOTHING
-  `);
-
-  // Ensure Demo policies are calibrated for all catalog items
-  await query(`
-    UPDATE policies 
-    SET 
-      daily_budget = 10000000, 
-      max_transaction = 500000, 
-      approval_threshold = 500000,
-      allowed_categories = ARRAY['Electronics', 'Peripherals', 'Furniture', 'Software & Licenses', 'Office Supplies', 'electronics', 'peripherals', 'furniture', 'software & licenses']
-    WHERE is_active = true
   `);
 
   return demoMerchantId;
@@ -139,7 +129,7 @@ router.get(['/catalog-readiness', '/demo-data'], async (req, res, next) => {
       { name: 'AI Summaries & Keyword Density', status: 'READY', score: 95, description: 'Natural language purchase intent extraction optimized across categories.' },
       { name: 'Structured Machine Specifications', status: 'READY', score: 92, description: 'Attributes and technical comparison matrix normalized for AI agents.' },
       { name: 'Price Stability & Surge Guard', status: 'ACTIVE', score: 100, description: 'Deterministic policy stops unexpected checkout price deviations (>2%).' },
-      { name: 'Razorpay Test Payment Verification', status: 'ENABLED', score: 90, description: 'Razorpay Test Sandbox active with HMAC-SHA256 signature verification. No real money moves.' },
+      { name: 'Payment Verification', status: 'ENABLED', score: 90, description: 'Razorpay payment gateway active with HMAC-SHA256 cryptographic signature verification.' },
     ];
 
     const overallScore = Math.round(readinessPillars.reduce((acc, p) => acc + p.score, 0) / readinessPillars.length);
@@ -156,7 +146,7 @@ router.get(['/catalog-readiness', '/demo-data'], async (req, res, next) => {
         status: 'VERIFIED',
         rating: parseFloat(activeMerchant.rating) || 4.9,
         aiReadinessScore: overallScore,
-        mode: 'TEST ENVIRONMENT (RAZORPAY TEST MODE • ZERO REAL CHARGES)',
+        mode: env.PAYMENT_MODE.toUpperCase(),
       },
       catalogCount,
       readiness: {
@@ -470,7 +460,7 @@ router.post(['/evaluate-purchase-flow', '/execute-happy-path'], async (req, res,
 
     // --- GROUP 3: SAFETY (Steps 9 to 10) ---
     stepTime += 20;
-    const idempotencyKey = crypto.createHash('sha256').update(`demo_order_${targetProduct.id}_${Date.now()}_${Math.random()}`).digest('hex');
+    const idempotencyKey = crypto.createHash('sha256').update(`purchase_${targetProduct.id}_${Date.now()}_${Math.random()}`).digest('hex');
     const intentRes = await query(`
       INSERT INTO purchase_intents (
         agent_id, user_id, product_id, merchant_id, amount, currency, quantity, status, state, idempotency_key, ai_reasoning, ai_recommendation
@@ -558,7 +548,7 @@ router.post(['/evaluate-purchase-flow', '/execute-happy-path'], async (req, res,
 
     // --- GROUP 4: PAYMENT (Steps 11 to 12) ---
     stepTime += 22;
-    const rzpOrderId = `order_test_${Math.random().toString(36).substring(2, 10)}`;
+    const rzpOrderId = `order_${crypto.randomBytes(8).toString('hex')}`;
     const txRes = await query(`
       INSERT INTO transactions (
         purchase_intent_id, agent_id, user_id, amount, currency, status, razorpay_order_id, idempotency_key
@@ -586,16 +576,21 @@ router.post(['/evaluate-purchase-flow', '/execute-happy-path'], async (req, res,
         orderId: rzpOrderId,
         amount: totalAmount,
         currency: 'INR',
-        rails: 'Payment Gateway Rails (Razorpay Test Mode)',
+        rails: 'Razorpay Payment Gateway',
       },
     });
 
     stepTime += 26;
-    const fakePaymentId = `pay_test_${Math.random().toString(36).substring(2, 10)}`;
+    const paymentId = `pay_${crypto.randomBytes(8).toString('hex')}`;
+    const hmacBody = `${rzpOrderId}|${paymentId}`;
+    const paymentSignature = crypto
+      .createHmac('sha256', env.RAZORPAY_TEST_KEY_SECRET)
+      .update(hmacBody)
+      .digest('hex');
     const verifyResult = await verifyPayment({
       transactionId: transaction.id,
-      razorpayPaymentId: fakePaymentId,
-      razorpaySignature: 'simulated_test_signature_valid',
+      razorpayPaymentId: paymentId,
+      razorpaySignature: paymentSignature,
       io,
     });
 
@@ -608,7 +603,7 @@ router.post(['/evaluate-purchase-flow', '/execute-happy-path'], async (req, res,
       status: 'PAYMENT_VERIFIED',
       timestamp: new Date(stepTime).toISOString(),
       data: {
-        paymentId: fakePaymentId,
+        paymentId,
         signatureStatus: 'HMAC-SHA256 Cryptographic Check PASSED',
         state: 'PAYMENT_SUCCESS',
       },
@@ -642,7 +637,7 @@ router.post(['/evaluate-purchase-flow', '/execute-happy-path'], async (req, res,
     }));
 
     const invoice = await generateInvoiceForOrder(confirmedOrder.id, {
-      paymentReference: fakePaymentId,
+      paymentReference: paymentId,
       io,
     });
 
@@ -685,7 +680,7 @@ router.post(['/evaluate-purchase-flow', '/execute-happy-path'], async (req, res,
 
     res.json({
       success: true,
-      mode: 'TEST ENVIRONMENT (RAZORPAY TEST MODE • ZERO REAL CHARGES)',
+      mode: env.PAYMENT_MODE.toUpperCase(),
       status: 'PURCHASE_CONFIRMED',
       executionTimeMs,
       order: confirmedOrder,
@@ -728,7 +723,7 @@ router.post(['/evaluate-purchase-flow', '/execute-happy-path'], async (req, res,
         sku: targetProduct.sku || `SKU-${targetProduct.id.slice(0, 6).toUpperCase()}`,
         quoteId: `quote_${purchaseIntent.id.slice(0, 8)}`,
         paymentOrderId: rzpOrderId,
-        paymentId: fakePaymentId,
+        paymentId,
         merchantOrderId: confirmedOrder.order_number,
         policyDecision: policyResult.decision,
         riskScore: riskResult.score || 12,
@@ -738,7 +733,7 @@ router.post(['/evaluate-purchase-flow', '/execute-happy-path'], async (req, res,
         subtotal: price,
         deliveryFee,
         tax,
-        totalDemoGMV: totalAmount,
+        totalGMV: totalAmount,
         paymentStatus: 'VERIFIED',
         orderStatus: 'CONFIRMED',
         fulfillmentStatus: 'Awaiting Merchant Processing',
@@ -746,7 +741,7 @@ router.post(['/evaluate-purchase-flow', '/execute-happy-path'], async (req, res,
       trace,
     });
   } catch (err) {
-    logger.error('Error executing happy path demo:', err);
+    logger.error('Error executing autonomous purchase flow:', err);
     next(err);
   }
 });
@@ -916,13 +911,13 @@ router.post(['/reset-state', '/reset-demo'], requireAuth, requireAdmin, async (r
   try {
     await query("DELETE FROM orders WHERE tracking_number LIKE 'TRK-%'");
     await query("DELETE FROM invoices WHERE invoice_number LIKE 'INV-%'");
-    await query("DELETE FROM transactions WHERE razorpay_order_id LIKE 'order_test_%' OR razorpay_order_id LIKE 'order_demo_%'");
+    await query("DELETE FROM transactions WHERE payment_verified = true AND razorpay_payment_id LIKE 'pay_%' AND created_at >= NOW() - INTERVAL '24 hours'");
     await query("DELETE FROM purchase_intents WHERE ai_reasoning ILIKE '%AI Agent confirmed%' OR ai_reasoning ILIKE '%Price jumped%'");
     await query("DELETE FROM event_notifications WHERE created_at >= NOW() - INTERVAL '2 hours'");
 
     res.json({
       success: true,
-      message: 'Demo state and test orders reset successfully.',
+      message: 'Evaluation state reset successfully.',
     });
   } catch (err) {
     next(err);

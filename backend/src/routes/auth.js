@@ -47,7 +47,7 @@ router.post('/signup', async (req, res, next) => {
 
     const passwordHash = password ? await hashPassword(password) : null;
     const normRole = (requestedRole || 'BUYER').toUpperCase();
-    const role = cleanEmail.includes('admin') ? 'admin' : (normRole === 'MERCHANT' ? 'MERCHANT' : 'BUYER');
+    const role = normRole === 'MERCHANT' ? 'MERCHANT' : 'BUYER';
 
     const insertRes = await query(`
       INSERT INTO users (email, name, role, password_hash)
@@ -161,7 +161,7 @@ router.post('/google', async (req, res, next) => {
         );
       }
     } else {
-      const role = cleanEmail.includes('admin') ? 'admin' : normRole;
+      const role = normRole === 'MERCHANT' ? 'MERCHANT' : 'BUYER';
       const insertRes = await query(
         'INSERT INTO users (email, name, role, google_id, avatar_url) VALUES ($1, $2, $3, $4, $5) RETURNING *',
         [cleanEmail, cleanName, role, googleId || null, avatarUrl || null]

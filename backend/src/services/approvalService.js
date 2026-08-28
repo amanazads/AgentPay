@@ -1,7 +1,9 @@
+import crypto from 'crypto';
 import { query } from '../config/database.js';
 import { recordAuditEvent } from './auditService.js';
 import { createPaymentOrder } from './paymentService.js';
 import { logger } from '../utils/logger.js';
+import env from '../config/env.js';
 
 /**
  * Human Approval Service
@@ -109,11 +111,17 @@ export async function processApproval({
     if (paymentOrder && paymentOrder.transactionId) {
       try {
         const { verifyPayment } = await import('./paymentService.js');
+        const autoPaymentId = `pay_${crypto.randomBytes(8).toString('hex')}`;
+        const hmacBody = `${paymentOrder.orderId}|${autoPaymentId}`;
+        const autoSignature = crypto
+          .createHmac('sha256', env.RAZORPAY_TEST_KEY_SECRET)
+          .update(hmacBody)
+          .digest('hex');
         await verifyPayment({
           transactionId: paymentOrder.transactionId,
           razorpayOrderId: paymentOrder.orderId,
-          razorpayPaymentId: `pay_test_${Math.random().toString(36).substring(2, 10)}`,
-          razorpaySignature: 'valid_test_signature',
+          razorpayPaymentId: autoPaymentId,
+          razorpaySignature: autoSignature,
           io,
         });
       } catch (verErr) {

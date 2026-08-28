@@ -86,7 +86,6 @@ app.get('/api/health', (req, res) => {
     service: 'AgentPay Backend',
     version: '1.0.0',
     timestamp: new Date().toISOString(),
-    demoMode: true,
   });
 });
 

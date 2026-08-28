@@ -6,6 +6,8 @@ import { createPaymentOrder, verifyPayment } from '../src/services/paymentServic
 import { findEligibleProducts } from '../src/services/candidateFilter.js';
 import { parseBuyerIntent } from '../src/services/intentParser.js';
 import { generateAccessToken } from '../src/utils/authUtils.js';
+import crypto from 'crypto';
+import env from '../src/config/env.js';
 
 describe('Track 01: Merchant Dashboard, Data Integrity & Revenue Attribution Suite', () => {
   let merchantUser;
@@ -92,10 +94,18 @@ describe('Track 01: Merchant Dashboard, Data Integrity & Revenue Attribution Sui
     expect(paymentOrder.transactionId).toBeDefined();
 
     // 3. Verify payment
+    const paymentId = `pay_${crypto.randomBytes(8).toString('hex')}`;
+    const hmacBody = `${paymentOrder.orderId}|${paymentId}`;
+    const razorpaySignature = crypto
+      .createHmac('sha256', env.RAZORPAY_TEST_KEY_SECRET)
+      .update(hmacBody)
+      .digest('hex');
+
     const verifyResult = await verifyPayment({
       transactionId: paymentOrder.transactionId,
-      razorpayPaymentId: `pay_test_${Date.now()}`,
-      razorpaySignature: 'valid_test_signature',
+      razorpayOrderId: paymentOrder.orderId,
+      razorpayPaymentId: paymentId,
+      razorpaySignature,
     });
 
     expect(verifyResult.verified).toBe(true);

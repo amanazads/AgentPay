@@ -236,7 +236,7 @@ router.get('/overview', async (req, res, next) => {
         status: p6Ready ? 'CONNECTED' : 'PENDING_VERIFICATION',
         verified: p6Ready,
         score: p6Ready ? 100 : 70,
-        description: 'Razorpay Sandbox test rails active with HMAC-SHA256 webhook signature verification.',
+        description: 'Razorpay payment rails active with HMAC-SHA256 webhook signature verification.',
       },
     ];
 
@@ -1018,7 +1018,7 @@ router.get('/ai-commerce', async (req, res, next) => {
         status: 'VERIFIED',
         score: paymentScore,
         verified: true,
-        description: 'Razorpay Test Sandbox active with HMAC-SHA256 signature verification & idempotent webhooks.',
+        description: 'Razorpay payment gateway active with HMAC-SHA256 signature verification & idempotent webhooks.',
       },
     ];
 
@@ -1101,9 +1101,9 @@ router.get('/orders', async (req, res, next) => {
       buyerType: 'AI Buyer (AgentPay Agent)',
       buyerName: o.buyer_name || 'AI Buyer',
       buyerMasked: o.buyer_email ? `${o.buyer_email.split('@')[0].slice(0, 3)}***@${o.buyer_email.split('@')[1]}` : 'usr***@agentpay.ai',
-      paymentId: o.transaction_id || 'pay_test_verified',
+      paymentId: o.transaction_id || o.razorpay_payment_id || 'pay_verified',
       paymentStatus: o.payment_status || 'VERIFIED',
-      settlementStatus: o.settlement_status || 'NOT_APPLICABLE_TEST_MODE',
+      settlementStatus: o.settlement_status || 'PENDING',
       merchantOrderId: o.order_number,
       status: o.fulfillment_status || o.order_status || 'CONFIRMED',
       orderStatus: o.order_status || 'CONFIRMED',

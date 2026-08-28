@@ -63,7 +63,6 @@ export async function createPaymentOrder(arg1, arg2 = {}) {
       currency: 'INR',
       environment: tx.environment || effectiveEnv,
       paymentMode: tx.payment_mode || effectiveMode,
-      isSandbox: (tx.payment_mode || effectiveMode) === 'TEST',
     };
   }
 
@@ -114,7 +113,6 @@ export async function createPaymentOrder(arg1, arg2 = {}) {
         currency: 'INR',
         environment: effectiveEnv,
         paymentMode: effectiveMode,
-        isSandbox: effectiveMode === 'TEST',
       };
     }
     throw new Error('Duplicate payment processing in progress. Idempotency lock active.');
@@ -197,7 +195,6 @@ export async function createPaymentOrder(arg1, arg2 = {}) {
       keyId: rzpResult.keyId,
       environment: effectiveEnv,
       paymentMode: effectiveMode,
-      isSandbox: effectiveMode === 'TEST',
     };
   } finally {
     await releaseIdempotencyLock(idempotencyKey);
