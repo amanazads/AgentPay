@@ -9,7 +9,7 @@
 
 ## 2. Cryptographic & Payment Security
 * **Zero Raw Payment Credentials**: AgentPay never collects, stores, or logs raw PAN, CVV, OTP, UPI PIN, or banking passwords.
-* **HMAC-SHA256 Signature Verification**: Every payment callback is validated cryptographically against `RAZORPAY_KEY_SECRET`.
+* **Razorpay Test Rails & HMAC-SHA256 Verification**: Payment execution runs against Razorpay Test Rails with real server-side HMAC-SHA256 signature verification (live backend processing against the Razorpay sandbox/test environment, not live financial settlement). Callbacks and webhooks are validated cryptographically against canonical test secrets (`RAZORPAY_TEST_KEY_SECRET` and `RAZORPAY_TEST_WEBHOOK_SECRET`).
 * **Idempotency & Double-Spend Locks**: Redis `SetNX` distributed locks enforce a 5-minute sliding window per purchase intent, preventing duplicate charges.
 * **Atomic Spending Reservation**: Multi-agent concurrent purchases atomically evaluate and reserve limits from persisted successful/pending state, preventing race-condition overspending.
 * **In-Flight Kill Switch Safety**: Activation of the emergency stop safely transitions in-flight transactions to `RECONCILIATION_REQUIRED` without silent drops.
@@ -33,8 +33,8 @@
 6. **Restricted Category Blacklist**: Blocks prohibited merchant categories.
 7. **Price Tampering Tolerance Guard**: Blocks price inflation > 2.0% against catalog baseline.
 8. **Single-Transaction Ceiling Enforcer**: Halts orders exceeding maximum authorized spend.
-9. **Daily & Monthly Budget Exhaustion Check**: Blocks purchases exceeding cumulative remaining budget.
+9. **Daily & Monthly Budget Exhaustion Check**: Blocks purchases exceeding cumulative remaining budget (both daily and monthly budgets enforced server-side).
 10. **Sliding-Window Idempotency Lock**: Blocks duplicate submissions within 5 minutes.
 11. **Autonomous Spending Threshold Gate**: Routes orders exceeding auto-limit to human review.
-12. **Cryptographic Signature Verification**: Validates HMAC-SHA256 payment signature.
+12. **Cryptographic Signature Verification**: Validates HMAC-SHA256 payment signature on Razorpay Test Rails.
 13. **Append-Only Audit Ledger**: Immutable audit trail protected by database mutation triggers.

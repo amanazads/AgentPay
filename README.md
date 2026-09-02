@@ -56,9 +56,9 @@ To ensure technical truthfulness under engineering review, AgentPay clearly dist
 
 | Dimension | Target Production Architecture | Current Evaluation Implementation |
 |---|---|---|
-| **Payment Gateway** | Razorpay Live Rails (`rzp_live_*`) with live webhooks | **Razorpay Test Rails (`rzp_test_*`)** with live HMAC-SHA256 signature verification |
+| **Payment Gateway** | Production Razorpay Live Rails (`rzp_live_*`) with live financial settlement | **Razorpay Test Rails (`rzp_test_*`)** with server-side HMAC-SHA256 verification (real backend processing against the Razorpay sandbox/test environment, not live financial settlement) |
 | **Merchant Integration** | Multi-tenant ERP/Store connectors & external webhooks | **Normalized In-Database Merchant Connector** (verified catalog, rotatable HMAC secrets) |
-| **Fulfillment & Logistics** | Physical 3PL carrier APIs (e.g. Shiprocket, Delhivery) | **Simulated Fulfillment Lifecycle** (deterministic state machine with generated tracking tokens) |
+| **Fulfillment & Logistics** | Physical 3PL carrier integrations (e.g. Shiprocket, Delhivery) | **Simulated Fulfillment Lifecycle** (deterministic state machine with generated tracking tokens; physical 3PL integrations are future production targets) |
 | **AI Intent Parsing** | Live Google Gemini 1.5 Pro with structured function calling | **Gemini 1.5 Pro** with deterministic rule-based offline fallback |
 | **Idempotency & Locks** | Multi-node Redis 7 cluster with SetNX distributed locks | **Redis 7** mutex locking with automatic local in-memory fallback |
 | **Audit Trail** | Append-only PostgreSQL with trigger protection & external sync | **PostgreSQL 17** with `trg_prevent_audit_events_mutation` trigger |
@@ -164,7 +164,7 @@ Evaluates every purchase intent server-side prior to financial execution:
 6. **Merchant Authenticity & Verification Tier** (`verified_merchants_only`)
 7. **Price Tampering Tolerance Guard** (`price_tolerance_pct` max 2.0%)
 8. **Single-Transaction Hard Spending Ceiling** (`max_transaction`)
-9. **Daily Spending Limit & Active Intent Reservation** (`daily_budget`)
+9. **Daily & Monthly Spending Limits + Active Intent Reservation** (`daily_budget` & `monthly_budget`): Enforces that both daily and monthly spending budgets are strictly validated server-side against historical spend plus in-flight reservations.
 10. **5-Minute Sliding Window Duplicate Prevention**
 11. **Maximum Retry Limit Enforcement**
 12. **Autonomous Spending Threshold Gate** (`approval_threshold`)
@@ -179,9 +179,11 @@ Calculates an explainable numerical risk score with granular factor weights:
 * **Agent Behavioral Deviation (15% Weight)**: Deviation from historical mean transaction value.
 * **Tiers**: `LOW` (0–39), `MEDIUM` (40–69), `HIGH` (70–100). High risk automatically escalates compliant intents to human review.
 
-### 3. Razorpay Payment Service (Test Rails)
-* Creates Razorpay orders server-side only after positive authorization.
+### 3. Razorpay Payment Service (Test Rails with HMAC-SHA256 Verification)
+* Real backend payment-processing flow against the Razorpay sandbox/test environment (Razorpay Test Rails with HMAC-SHA256 verification, not live financial settlement).
+* Creates Razorpay test orders server-side only after positive policy authorization.
 * Verifies `razorpay_signature` via HMAC-SHA256 (`crypto.createHmac('sha256', secret)`).
+* Validates inbound webhook events against `RAZORPAY_TEST_WEBHOOK_SECRET` with signature verification.
 * Enforces distributed Redis idempotency locks (`idempotency_key = hash(intent_id + amount + policy_version)`).
 * Transitions in-flight transactions safely to `RECONCILIATION_REQUIRED` if emergency stops trigger during execution.
 
@@ -214,8 +216,8 @@ For testing and technical evaluations, AgentPay includes isolated administrative
 | **AI Service** | Python, FastAPI, Uvicorn, Pydantic | Python 3.12, Prompt Guard, Gemini 1.5 Pro |
 | **Database** | PostgreSQL | **36 Relational Tables**, 15 Migrations (`001`–`014` + `006_strict`) |
 | **Cache & Locks** | Redis | Redis 7 mutex locking with local in-memory fallback |
-| **Payments** | Razorpay Gateway | **Test Sandbox Rails** (`rzp_test_*`), HMAC-SHA256 verification |
-| **Fulfillment** | Order State Machine | Simulated order fulfillment lifecycle with generated tracking tokens |
+| **Payments** | Razorpay Gateway | **Test Sandbox Rails** (`rzp_test_*`), HMAC-SHA256 verification (live backend processing against Razorpay test environment, not live financial settlement) |
+| **Fulfillment** | Order State Machine | Simulated order fulfillment lifecycle with generated tracking tokens (physical 3PL carrier integrations are future production targets) |
 
 ---
 
@@ -235,8 +237,9 @@ PORT=5050
 NODE_ENV=development
 DATABASE_URL=postgresql://aman@localhost:5433/agentpay
 REDIS_URL=redis://localhost:6379
-RAZORPAY_KEY_ID=rzp_test_xxxxxxxxxxxxx
-RAZORPAY_KEY_SECRET=xxxxxxxxxxxxxxxxxxxxxxxx
+RAZORPAY_TEST_KEY_ID=rzp_test_xxxxxxxxxxxxx
+RAZORPAY_TEST_KEY_SECRET=xxxxxxxxxxxxxxxxxxxxxxxx
+RAZORPAY_TEST_WEBHOOK_SECRET=whsec_test_xxxxxxxxxxxxxxxx
 AI_SERVICE_URL=http://localhost:8000
 GEMINI_API_KEY=your_google_gemini_api_key_here
 ```

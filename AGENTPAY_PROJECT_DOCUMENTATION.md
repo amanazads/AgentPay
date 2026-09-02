@@ -107,7 +107,7 @@ Evaluates every purchase intent server-side prior to financial execution:
 6. **Merchant Authenticity & Verification Tier** (`verified_merchants_only`)
 7. **Price Tampering Tolerance Guard** (`price_tolerance_pct` max 2.0%)
 8. **Single-Transaction Hard Spending Ceiling** (`max_transaction`)
-9. **Daily Spending Limit & Active Intent Reservation** (`daily_budget`)
+9. **Daily & Monthly Spending Limits + Active Intent Reservation** (`daily_budget` & `monthly_budget`)
 10. **5-Minute Sliding Window Duplicate Prevention**
 11. **Maximum Retry Limit Enforcement**
 12. **Autonomous Spending Threshold Gate** (`approval_threshold`)
