@@ -3,10 +3,12 @@ import env from './env.js';
 
 const { Pool } = pg;
 
+const isTest = process.env.NODE_ENV === 'test' || env.NODE_ENV === 'test';
+
 const pool = new Pool({
   connectionString: env.DATABASE_URL,
-  max: 20,
-  idleTimeoutMillis: 30000,
+  max: isTest ? 5 : 20,
+  idleTimeoutMillis: isTest ? 500 : 30000,
   connectionTimeoutMillis: 5000,
 });
 

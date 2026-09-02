@@ -255,7 +255,7 @@ export default function MerchantAICommerce() {
                       onClick={() => handleLaunchProductDemo(prod.id, 'happy_path')}
                       icon={<Icons.Sparkles size={13} />}
                     >
-                      {isOutOfStock ? 'Out of Stock' : 'Simulate Purchase'}
+                      {isOutOfStock ? 'Out of Stock' : 'Preview AI Purchase'}
                     </Button>
                     <Button
                       variant="outline"

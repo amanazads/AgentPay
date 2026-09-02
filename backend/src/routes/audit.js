@@ -7,6 +7,17 @@ const router = Router();
 
 router.use(requireAuth);
 
+// Method Guard: Explicitly reject any mutating HTTP verbs (Audit logs are strictly append-only)
+router.use((req, res, next) => {
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
+    return res.status(405).json({
+      error: 'Method Not Allowed: audit_events log is strictly append-only and immutable. Client-side mutations are prohibited.',
+      code: 'IMMUTABLE_AUDIT_LOG',
+    });
+  }
+  next();
+});
+
 // GET /api/audit — List audit events scoped by tenant
 router.get('/', async (req, res, next) => {
   try {

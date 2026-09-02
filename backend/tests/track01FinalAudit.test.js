@@ -64,9 +64,18 @@ describe('Track 01: Final Merchant Catalog & AI Commerce Readiness Audit Suite',
     buyerUser = bRes.rows[0];
     buyerToken = generateAccessToken(buyerUser);
 
-    // 4. In-stock test product
-    const pRes = await query("SELECT * FROM products WHERE merchant_id = $1 AND in_stock = true AND inventory > 0 LIMIT 1", [merchantId]);
-    testProduct = pRes.rows[0];
+    // 4. In-stock test product within buyer mandate limit
+    let pRes = await query("SELECT * FROM products WHERE merchant_id = $1 AND in_stock = true AND inventory > 0 AND price <= 10000 ORDER BY price ASC LIMIT 1", [merchantId]);
+    if (pRes.rows.length === 0) {
+      const insP = await query(`
+        INSERT INTO products (merchant_id, name, category, price, in_stock, inventory)
+        VALUES ($1, 'Final Audit Test Product', 'Electronics', 1499.00, true, 20)
+        RETURNING *
+      `, [merchantId]);
+      testProduct = insP.rows[0];
+    } else {
+      testProduct = pRes.rows[0];
+    }
   });
 
   // TEST 1: Exact product purchase matches target SKU

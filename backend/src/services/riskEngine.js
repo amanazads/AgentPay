@@ -10,18 +10,25 @@ export async function assessRisk({
   merchantId,
   amount,
   quantity = 1,
+  product: passedProduct = null,
+  merchant: passedMerchant = null,
 }) {
   const factors = [];
 
   // Fetch product & merchant
-  const productRes = await query(`
-    SELECT p.*, m.name as merchant_name, m.is_verified, m.risk_level as merchant_risk_level, m.rating
-    FROM products p
-    JOIN merchants m ON p.merchant_id = m.id
-    WHERE p.id = $1
-  `, [productId]);
+  let product = passedProduct;
+  if (!product && productId) {
+    const productRes = await query(`
+      SELECT p.*, m.name as merchant_name, m.is_verified, m.risk_level as merchant_risk_level, m.rating
+      FROM products p
+      JOIN merchants m ON p.merchant_id = m.id
+      WHERE p.id = $1
+    `, [productId]);
+    product = productRes.rows[0] || {};
+  } else if (!product) {
+    product = {};
+  }
 
-  const product = productRes.rows[0] || {};
   const requestedTotal = parseFloat(amount || 0);
 
   // -------------------------------------------------------------
@@ -30,10 +37,13 @@ export async function assessRisk({
   let merchantScore = 10;
   let merchantReason = 'Verified merchant with established low-risk profile.';
 
-  if (product.merchant_risk_level === 'high' || !product.is_verified) {
+  const isVerified = passedMerchant ? passedMerchant.is_verified : product.is_verified;
+  const merchantRiskLevel = passedMerchant ? passedMerchant.risk_level : product.merchant_risk_level;
+
+  if (merchantRiskLevel === 'high' || !isVerified) {
     merchantScore = 90;
     merchantReason = 'Unverified or high-risk flagged merchant.';
-  } else if (product.merchant_risk_level === 'medium') {
+  } else if (merchantRiskLevel === 'medium') {
     merchantScore = 45;
     merchantReason = 'Merchant has moderate risk classification or mixed ratings.';
   }
@@ -51,21 +61,53 @@ export async function assessRisk({
   // -------------------------------------------------------------
   let threatScore = 5;
   let threatReason = 'Product description contains standard catalog content.';
-  const textToCheck = `${product.name || ''} ${product.description || ''}`.toLowerCase();
+  const originalText = `${product.name || ''} ${product.description || ''}`;
+  const textToCheck = originalText.toLowerCase();
   
-  const injectionPatterns = [
-    'ignore all previous instructions',
-    'ignore all rules',
-    'ignore the purchasing policy',
-    'admin command',
-    'system override',
-    'bypass_policy',
-    'disable_security',
-    'set_approval=auto',
-    'admin mode',
+  const injectionRegexes = [
+    /(?:ignore|disregard|forget|override|cancel|bypass)\s+(?:all\s+)?(?:(?:previous|prior|existing|above|system|developer|policy|spending)\s+)?(?:the\s+)?(?:rules|instructions|prompts|commands|constraints|limits|policies|policy)/i,
+    /(?:new\s+instructions?|system\s+override|priority\s+override|jailbreak|developer\s+mode)/i,
+    /\[(?:SYSTEM|DEVELOPER|ADMIN|ROOT)\]/i,
+    /<\|im_start\|>system/i,
+    /<<SYS>>|<SYS>/i,
+    /-{2,}\s*BEGIN\s+(?:SYSTEM|ADMIN)\s+(?:MESSAGE|INSTRUCTION)\s*-{2,}/i,
+    /###\s*System:/i,
+    /(?:admin\s+(?:command|mode|privilege|override)|sudo\s+(?:approve|authorize|execute|buy|grant)|grant\s+(?:admin|root|permission|authorization)|root\s+(?:access|privilege))/i,
+    /(?:set_approval\s*=\s*(?:auto|true|allow|bypass)|auto_approve\s*=\s*true)/i,
+    /bypass\s+(?:spending|budget|purchasing)\s*(?:limits?|polic(?:y|ies)|rules?)?/i,
+    /override\s+(?:spending|budget|limits?)/i,
+    /(?:set\s+limit\s*(?:to|=)\s*(?:unlimited|\d{7,})|no\s+spending\s+limit)/i,
+    /max_budget\s*=\s*(?:unlimited|[\d,]{7,})/i,
+    /(?:set|increase|override)\s+quantity\s*(?:to|=)\s*\d+/i,
+    /(?:buy|order)\s+\d{3,}\s+units/i,
   ];
 
-  const matchedPattern = injectionPatterns.find(p => textToCheck.includes(p));
+  let matchedPattern = null;
+  for (const rx of injectionRegexes) {
+    const match = textToCheck.match(rx);
+    if (match) {
+      matchedPattern = match[0];
+      break;
+    }
+  }
+
+  // Also check for base64 encoded payloads in originalText (case-sensitive)
+  if (!matchedPattern) {
+    const b64Candidates = originalText.match(/[A-Za-z0-9+/]{16,}={0,2}/g) || [];
+    for (const cand of b64Candidates) {
+      try {
+        const decoded = Buffer.from(cand, 'base64').toString('utf8');
+        for (const rx of injectionRegexes) {
+          if (rx.test(decoded)) {
+            matchedPattern = `Base64 Encoded Injection: ${cand.substring(0, 12)}...`;
+            break;
+          }
+        }
+        if (matchedPattern) break;
+      } catch (e) {}
+    }
+  }
+
   if (matchedPattern) {
     threatScore = 100;
     threatReason = `Potential adversarial prompt injection detected in merchant content: "${matchedPattern}".`;

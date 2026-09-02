@@ -224,13 +224,8 @@ router.get('/me', async (req, res, next) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    let userId = null;
-    if (token.startsWith('agentpay_jwt_')) {
-      userId = token.replace('Bearer ', '').split('_')[2] || token.replace('Bearer ', '').split('_')[1];
-    } else {
-      const decoded = verifyAccessToken(token);
-      userId = decoded?.id;
-    }
+    const decoded = verifyAccessToken(token);
+    const userId = decoded?.id;
 
     if (!userId) {
       return res.status(401).json({ error: 'Invalid or expired token' });

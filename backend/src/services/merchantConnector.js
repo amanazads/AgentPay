@@ -1,5 +1,7 @@
 import { query } from '../config/database.js';
 import crypto from 'crypto';
+import { calculatePrice } from './pricingService.js';
+import { generateQuote } from './quoteService.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -83,29 +85,11 @@ export class StandardPlatformMerchantAdapter {
       throw new Error(`Product ${productId} unavailable for quote from merchant ${merchantId}`);
     }
 
-    const itemPrice = parseFloat(product.price);
-    const deliveryFee = parseFloat(product.delivery_fee || 0);
-    const subtotal = itemPrice * requestedQuantity;
-    const total = subtotal + deliveryFee;
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // 15-minute lock
-
-    const payload = `${product.id}:${total}:${expiresAt}:${merchantId}`;
-    const signature = crypto.createHmac('sha256', process.env.JWT_SECRET || 'agentpay-quote-secret').update(payload).digest('hex');
-
-    return {
-      quoteId: `qt_${crypto.randomBytes(8).toString('hex')}`,
-      merchantId,
-      productId: product.id,
-      productName: product.name,
+    return generateQuote({
+      productId,
       quantity: requestedQuantity,
-      unitPrice: itemPrice,
-      subtotal,
-      deliveryFee,
-      totalAmount: total,
-      currency: 'INR',
-      signature,
-      expiresAt,
-    };
+      deliveryMethod: 'STANDARD',
+    });
   }
 
   /**

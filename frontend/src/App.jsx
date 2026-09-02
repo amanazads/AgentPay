@@ -24,8 +24,9 @@ import MerchantAnalytics from './pages/merchant/MerchantAnalytics';
 import MerchantStore from './pages/merchant/MerchantStore';
 import MerchantSettings from './pages/merchant/MerchantSettings';
 
-// Admin / Technical Console
+// Admin / Technical Console & Judge Cockpit
 import Console from './pages/Console';
+import JudgeCockpit from './pages/JudgeCockpit';
 
 function RootRoute() {
   const { isAuthenticated, user, loading } = useAuth();
@@ -203,6 +204,10 @@ export default function App() {
               </BuyerRoute>
             }
           />
+
+          {/* Judge Mode / 5-Minute Live Technical Evaluation Cockpit */}
+          <Route path="/judge" element={<JudgeCockpit />} />
+          <Route path="/judge-mode" element={<Navigate to="/judge" replace />} />
 
           {/* Catch-all */}
           <Route path="*" element={<Navigate to="/" replace />} />

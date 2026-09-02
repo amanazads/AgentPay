@@ -4,6 +4,7 @@ import { query } from '../config/database.js';
 import { getUserIdFromRequest } from '../utils/authUtils.js';
 import { requireAuth } from '../middleware/authMiddleware.js';
 import { processRazorpayWebhook } from '../services/webhookService.js';
+import { QuoteVerificationError } from '../services/quoteService.js';
 
 const router = Router();
 
@@ -86,7 +87,7 @@ router.get('/transactions', async (req, res, next) => {
 // POST /api/payments/create & /create-order — Create Razorpay order for an authorized intent
 router.post(['/create', '/create-order'], async (req, res, next) => {
   try {
-    const { purchase_intent_id } = req.body;
+    const purchase_intent_id = req.body.purchase_intent_id || req.body.purchaseIntentId;
     if (!purchase_intent_id) {
       return res.status(400).json({ error: 'purchase_intent_id is required' });
     }
@@ -102,9 +103,20 @@ router.post(['/create', '/create-order'], async (req, res, next) => {
     }
 
     const io = req.app.get('io');
-    const order = await createPaymentOrder(purchase_intent_id, { io });
+    const order = await createPaymentOrder(purchase_intent_id, {
+      quoteId: req.body.quote_id || req.body.quoteId,
+      quote: req.body.quote,
+      io,
+    });
     res.status(201).json(order);
   } catch (err) {
+    if (err instanceof QuoteVerificationError) {
+      return res.status(400).json({
+        error: err.message,
+        code: err.code,
+        details: err.details,
+      });
+    }
     next(err);
   }
 });
@@ -112,12 +124,10 @@ router.post(['/create', '/create-order'], async (req, res, next) => {
 // POST /api/payments/verify & /:id/verify — Server-side verify payment completion
 router.post(['/verify', '/:id/verify'], async (req, res, next) => {
   try {
-    const {
-      transaction_id,
-      razorpay_order_id,
-      razorpay_payment_id,
-      razorpay_signature,
-    } = req.body;
+    const transaction_id = req.body.transaction_id || req.body.transactionId;
+    const razorpay_order_id = req.body.razorpay_order_id || req.body.razorpayOrderId || req.params.id;
+    const razorpay_payment_id = req.body.razorpay_payment_id || req.body.razorpayPaymentId;
+    const razorpay_signature = req.body.razorpay_signature || req.body.razorpaySignature;
 
     const userId = getUserIdFromRequest(req);
     const uRes = await query('SELECT role, merchant_id FROM users WHERE id::text = $1', [userId]);
@@ -145,10 +155,11 @@ router.post(['/verify', '/:id/verify'], async (req, res, next) => {
 
     const io = req.app.get('io');
     const result = await verifyPayment({
-      transactionId: transaction_id || req.params.id,
+      transactionId: transaction_id || tx.id,
       razorpayOrderId: razorpay_order_id,
       razorpayPaymentId: razorpay_payment_id,
       razorpaySignature: razorpay_signature,
+      quoteId: req.body.quote_id || req.body.quoteId || null,
       io,
     });
 

@@ -3,7 +3,7 @@ import { query } from '../config/database.js';
 import env from '../config/env.js';
 import { getRedisClient } from '../config/redis.js';
 import { recordAuditEvent } from '../services/auditService.js';
-import { reconcileOrders } from '../services/reconciliationService.js';
+import { evaluateSystemReadiness } from '../services/systemReadinessService.js';
 import { requireAdmin, requireAuth } from '../middleware/authMiddleware.js';
 
 const router = Router();
@@ -39,225 +39,84 @@ router.get('/environment', async (req, res, next) => {
 /**
  * GET /api/system/readiness
  * 27-Point Comprehensive Go-Live Gate & Production Readiness Audit
+ * Probes runtime conditions, database constraints, credentials, and engines.
  */
 router.get('/readiness', async (req, res, next) => {
   try {
-    const checklist = [
-      // 1. Payments & Rails
-      {
-        id: 'PAY_TEST_KEYS',
-        category: 'Payments',
-        title: 'Razorpay API Keys Configured',
-        status: Boolean(env.RAZORPAY_TEST_KEY_ID && env.RAZORPAY_TEST_KEY_SECRET) ? 'READY' : 'BLOCKED',
-        details: 'Razorpay API keys active for payment order creation and HMAC verification.',
-      },
-      {
-        id: 'PAY_LIVE_KEYS',
-        category: 'Payments',
-        title: 'Razorpay Live Production Credentials',
-        status: env.hasLiveRazorpayKeys ? 'READY' : 'NOT_CONFIGURED',
-        details: env.hasLiveRazorpayKeys ? 'Live API keys active and verified.' : 'Production rzp_live_ keys required for real-money execution.',
-      },
-      {
-        id: 'PAY_TEST_WEBHOOK',
-        category: 'Payments',
-        title: 'Razorpay Webhook Secret',
-        status: Boolean(env.RAZORPAY_TEST_WEBHOOK_SECRET) ? 'READY' : 'NOT_CONFIGURED',
-        details: 'HMAC signature verification enabled for incoming payment webhooks.',
-      },
-      {
-        id: 'PAY_LIVE_WEBHOOK',
-        category: 'Payments',
-        title: 'Razorpay Live Webhook Secret',
-        status: Boolean(env.RAZORPAY_LIVE_WEBHOOK_SECRET) ? 'READY' : 'NOT_CONFIGURED',
-        details: 'Durable HMAC-SHA256 signature verification for live events.',
-      },
-      {
-        id: 'PAY_IDEMPOTENCY',
-        category: 'Payments',
-        title: 'Distributed Redis Idempotency Locks',
-        status: 'READY',
-        details: 'Redis mutex locks prevent duplicate transaction creation.',
-      },
-      {
-        id: 'PAY_RECONCILIATION',
-        category: 'Payments',
-        title: 'Automated Payment Reconciliation Engine',
-        status: 'READY',
-        details: 'Handles payment capture with delayed order creation safely.',
-      },
-
-      // 2. Governance & Safety
-      {
-        id: 'GOV_PRICE_SURGE',
-        category: 'Safety',
-        title: 'Atomic Price Surge & Revalidation Guard',
-        status: 'READY',
-        details: 'Blocks unexpected checkout price jumps with ₹0 charged.',
-      },
-      {
-        id: 'GOV_KILL_SWITCH',
-        category: 'Safety',
-        title: 'Global & Per-Agent Kill Switch',
-        status: 'READY',
-        details: 'Instant sub-5ms Redis freezing across all clients.',
-      },
-      {
-        id: 'GOV_SPENDING_CAPS',
-        category: 'Safety',
-        title: 'Platform-Enforced Spending Limits',
-        status: 'READY',
-        details: `Hard cap: ₹${env.PLATFORM_MAX_TRANSACTION_LIMIT.toLocaleString('en-IN')} per purchase / ₹${env.PLATFORM_MAX_DAILY_LIMIT.toLocaleString('en-IN')} daily.`,
-      },
-      {
-        id: 'GOV_APPROVAL_CENTER',
-        category: 'Safety',
-        title: 'Human-in-the-Loop Approval Workflow',
-        status: 'READY',
-        details: 'Mandatory human approval on limit or risk threshold violations.',
-      },
-      {
-        id: 'GOV_RISK_ENGINE',
-        category: 'Safety',
-        title: 'Deterministic Multi-Factor Risk Scoring',
-        status: 'READY',
-        details: '5-pillar explainable 0-100 score evaluating fraud and injection threats.',
-      },
-      {
-        id: 'GOV_PROMPT_GUARD',
-        category: 'Safety',
-        title: 'Adversarial Prompt Injection Defense',
-        status: 'READY',
-        details: 'Encapsulates untrusted merchant descriptions as isolated data.',
-      },
-
-      // 3. Commerce & Inventory Subsystems
-      {
-        id: 'COM_TWO_PHASE_INV',
-        category: 'Commerce',
-        title: 'Two-Phase Inventory Reservation',
-        status: 'READY',
-        details: 'Prevents race conditions and stock overselling.',
-      },
-      {
-        id: 'COM_QUOTE_PROTOCOL',
-        category: 'Commerce',
-        title: 'Time-Bound Price Lock Quote Protocol',
-        status: 'READY',
-        details: '15-minute cryptographic price lock quotes.',
-      },
-      {
-        id: 'COM_MERCHANT_ADAPTER',
-        category: 'Commerce',
-        title: 'Normalized Merchant Adapter Protocol',
-        status: 'READY',
-        details: 'Object-oriented multi-merchant integration contracts.',
-      },
-      {
-        id: 'COM_SETTLEMENT_LEDGER',
-        category: 'Commerce',
-        title: 'Marketplace Settlement & Route Ledger',
-        status: 'READY',
-        details: 'Auditable merchant payouts and commission tracking.',
-      },
-      {
-        id: 'COM_TAX_INVOICES',
-        category: 'Commerce',
-        title: 'Idempotent Structured Tax Invoices',
-        status: 'READY',
-        details: 'Automated invoice generation with printable PDF view.',
-      },
-
-      // 4. Infrastructure & Security
-      {
-        id: 'SEC_JWT_AUTH',
-        category: 'Security',
-        title: 'Cryptographic JWT Token Authentication',
-        status: 'READY',
-        details: 'Stateless JWT with secure cookies and expiration.',
-      },
-      {
-        id: 'SEC_RBAC_ISOLATION',
-        category: 'Security',
-        title: 'Role-Based Access Control (Buyer vs Merchant)',
-        status: 'READY',
-        details: 'Strict middleware isolation and merchant_id scoping.',
-      },
-      {
-        id: 'SEC_DURABLE_WEBHOOKS',
-        category: 'Security',
-        title: 'Durable Webhook Inbox & Deduplication',
-        status: 'READY',
-        details: 'Persistent webhook_inbox table prevents duplicate processing.',
-      },
-      {
-        id: 'SEC_AUDIT_TRAIL',
-        category: 'Security',
-        title: 'Auditable Append-Only Transaction Timeline',
-        status: 'READY',
-        details: 'Complete compliance logging for all financial decisions.',
-      },
-
-      // 5. External Integrations
-      {
-        id: 'EXT_CARRIER_FULFILLMENT',
-        category: 'Fulfillment',
-        title: 'Live Carrier Shipping API Integration',
-        status: 'SIMULATED',
-        details: 'Using AgentPay Express Logistics test SLA.',
-      },
-      {
-        id: 'EXT_EMAIL_SMS',
-        category: 'Notifications',
-        title: 'Transactional Email / SMS Gateway',
-        status: 'NOT_CONFIGURED',
-        details: 'In-app WebSockets LIVE; external SMS/Email stubs return NOT_CONFIGURED.',
-      },
-    ];
-
-    const readyCount = checklist.filter((c) => c.status === 'READY').length;
-    const totalCount = checklist.length;
-    const readinessPct = Math.round((readyCount / totalCount) * 100);
-
-    res.json({
-      readinessScore: readinessPct,
-      readyCount,
-      totalCount,
-      environment: env.APP_ENV.toUpperCase(),
-      paymentMode: env.PAYMENT_MODE.toUpperCase(),
-      liveGoLiveGateLocked: !env.hasLiveRazorpayKeys,
-      goLiveRequirementMet: env.hasLiveRazorpayKeys,
-      checklist,
-    });
+    const report = await evaluateSystemReadiness();
+    res.json(report);
   } catch (err) {
     next(err);
   }
 });
 
-// GET /api/system/status — Health check
+// GET /api/system/status — Dependency health check
+//
+// Invariant: infrastructure failure MUST NEVER silently convert to a "demo" state.
+// This endpoint independently probes each required dependency and reports the
+// aggregate system status without any fallback to demo mode.
+//
+// Response shape:
+//   { status: "operational" | "degraded" | "unavailable",
+//     dependencies: { database: "ok" | "unavailable", redis: "ok" | "unavailable" },
+//     killSwitchActive?: boolean,   // present only when database is reachable
+//     environment, paymentMode, timestamp }
+//
+// HTTP codes:
+//   200 — all dependencies healthy (status: "operational")
+//   503 — one or more dependencies unavailable (status: "degraded" | "unavailable")
 router.get('/status', async (req, res) => {
+  const dependencies = {};
+  let killSwitchActive;
+
+  // ── 1. PostgreSQL probe ─────────────────────────────────────────────────────
   try {
-    const result = await query('SELECT * FROM system_state WHERE id = 1');
-    const state = result.rows[0] || { kill_switch_active: false, demo_mode: true };
-    res.json({
-      status: 'operational',
-      environment: env.APP_ENV.toUpperCase(),
-      paymentMode: env.PAYMENT_MODE.toUpperCase(),
-      killSwitchActive: state.kill_switch_active,
-      demoMode: state.demo_mode,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (err) {
-    res.json({
-      status: 'degraded',
-      environment: env.APP_ENV.toUpperCase(),
-      paymentMode: env.PAYMENT_MODE.toUpperCase(),
-      killSwitchActive: false,
-      demoMode: true,
-      error: 'Database query timeout',
-      timestamp: new Date().toISOString(),
-    });
+    const result = await query('SELECT kill_switch_active FROM system_state WHERE id = 1');
+    // An empty result means system_state has not been seeded yet — that is not a
+    // failure; it just means no kill switch has been configured.
+    killSwitchActive = result.rows[0]?.kill_switch_active ?? false;
+    dependencies.database = 'ok';
+  } catch {
+    dependencies.database = 'unavailable';
   }
+
+  // ── 2. Redis probe ──────────────────────────────────────────────────────────
+  try {
+    const redis = getRedisClient();
+    await redis.ping();
+    dependencies.redis = 'ok';
+  } catch {
+    dependencies.redis = 'unavailable';
+  }
+
+  // ── 3. Aggregate status ─────────────────────────────────────────────────────
+  const dbOk = dependencies.database === 'ok';
+  const redisOk = dependencies.redis === 'ok';
+
+  let overallStatus;
+  if (dbOk && redisOk) {
+    overallStatus = 'operational';
+  } else if (!dbOk && !redisOk) {
+    overallStatus = 'unavailable';
+  } else {
+    overallStatus = 'degraded';
+  }
+
+  const payload = {
+    status: overallStatus,
+    environment: env.APP_ENV.toUpperCase(),
+    paymentMode: env.PAYMENT_MODE.toUpperCase(),
+    dependencies,
+    timestamp: new Date().toISOString(),
+  };
+
+  // killSwitchActive is only meaningful when the database is reachable
+  if (dbOk) {
+    payload.killSwitchActive = killSwitchActive;
+  }
+
+  const httpStatus = overallStatus === 'operational' ? 200 : 503;
+  return res.status(httpStatus).json(payload);
 });
 
 // POST /api/system/kill-switch — Emergency freeze (Admin only)
@@ -267,14 +126,14 @@ router.post('/kill-switch', requireAuth, requireAdmin, async (req, res, next) =>
     const io = req.app.get('io');
 
     await query(`
-      INSERT INTO system_state (id, kill_switch_active, kill_switch_reason, kill_switch_activated_at, updated_at)
+      INSERT INTO system_state (id, kill_switch_active, kill_switch_activated_by, kill_switch_activated_at, updated_at)
       VALUES (1, $1, $2, CASE WHEN $1 THEN NOW() ELSE NULL END, NOW())
       ON CONFLICT (id) DO UPDATE SET
         kill_switch_active = $1,
-        kill_switch_reason = $2,
+        kill_switch_activated_by = $2,
         kill_switch_activated_at = CASE WHEN $1 THEN NOW() ELSE NULL END,
         updated_at = NOW()
-    `, [Boolean(active), reason || 'Emergency stop triggered']);
+    `, [Boolean(active), req.user?.id || null]);
 
     // Emit live WebSocket event to freeze all connected clients
     if (io) {
@@ -297,6 +156,7 @@ router.post('/kill-switch', requireAuth, requireAdmin, async (req, res, next) =>
       message: active ? 'Kill switch ACTIVATED. All purchasing blocked.' : 'Kill switch DEACTIVATED. Operations normal.',
     });
   } catch (err) {
+    console.error('[KillSwitch Error]:', err);
     next(err);
   }
 });

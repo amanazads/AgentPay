@@ -2,17 +2,18 @@ import { Router } from 'express';
 import { merchantConnectionService } from '../services/merchantConnectionService.js';
 import { paymentMethodService } from '../services/paymentMethodService.js';
 import { getUserIdFromRequest } from '../utils/authUtils.js';
-import { query } from '../config/database.js';
+import { requireAuth } from '../middleware/authMiddleware.js';
 
 const router = Router();
 
-async function resolveUserId(req) {
-  try {
-    const id = getUserIdFromRequest(req);
-    if (id) return id;
-  } catch (e) {}
-  const uRes = await query("SELECT id FROM users WHERE role = 'BUYER' OR role = 'user' LIMIT 1");
-  return uRes.rows[0]?.id;
+router.use(requireAuth);
+
+function resolveUserId(req) {
+  const id = getUserIdFromRequest(req);
+  if (!id) {
+    throw new Error('Authentication required');
+  }
+  return id;
 }
 
 // GET /api/connections/merchants — List connected & available merchants with capabilities

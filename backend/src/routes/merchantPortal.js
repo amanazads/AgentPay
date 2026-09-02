@@ -3,7 +3,7 @@ import env from '../config/env.js';
 import { query } from '../config/database.js';
 import { getUserIdFromRequest } from '../utils/authUtils.js';
 import { requireAuth, requireMerchant } from '../middleware/authMiddleware.js';
-import { transitionOrderFulfillment, getOrdersForMerchant } from '../services/orderService.js';
+import { transitionOrderFulfillment, getOrdersForMerchant, cancelOrder, processOrderRefund } from '../services/orderService.js';
 import { recordAuditEvent } from '../services/auditService.js';
 import crypto from 'crypto';
 
@@ -240,21 +240,14 @@ router.get('/overview', async (req, res, next) => {
       },
     ];
 
-    // 7. Real Funnel Counts
-    const searches = Math.max(totalIntents * 4, totalProducts * 3, totalAiOrders * 6, 24);
-    const evaluated = Math.max(totalIntents * 2, totalAiOrders * 3, 16);
-    const intentsCount = Math.max(totalIntents, totalAiOrders);
-    const approvedCount = Math.max(totalAiOrders, totalIntents - blockedIntents);
-    const paidCount = totalAiOrders;
-    const completedCount = totalAiOrders;
-
+    // 7. Canonical Funnel Counts
+    const approvedCount = Math.max(totalAiOrders, completedIntents);
     const funnel = [
-      { stage: 'AI Catalog Searches', count: searches, percentage: 100 },
-      { stage: 'Products Evaluated by Agent', count: evaluated, percentage: Math.round((evaluated / searches) * 100) },
-      { stage: 'Purchase Intents Created', count: intentsCount, percentage: Math.round((intentsCount / searches) * 100) },
-      { stage: 'Policy & Risk Approved', count: approvedCount, percentage: Math.round((approvedCount / searches) * 100) },
-      { stage: 'Payment Verified & Captured', count: paidCount, percentage: Math.round((paidCount / searches) * 100) },
-      { stage: 'Completed AI Orders', count: completedCount, percentage: Math.round((completedCount / searches) * 100) },
+      { stage: 'Active Catalog SKUs', count: totalProducts, percentage: 100 },
+      { stage: 'Purchase Intents Initiated', count: totalIntents, percentage: totalProducts > 0 ? Math.min(100, Math.round((totalIntents / totalProducts) * 100)) : 100 },
+      { stage: 'Policy & Risk Approved', count: approvedCount, percentage: totalIntents > 0 ? Math.round((approvedCount / totalIntents) * 100) : 100 },
+      { stage: 'Payment Verified & Captured', count: totalAiOrders, percentage: totalIntents > 0 ? Math.round((totalAiOrders / totalIntents) * 100) : 100 },
+      { stage: 'Completed AI Orders', count: totalAiOrders, percentage: totalIntents > 0 ? Math.round((totalAiOrders / totalIntents) * 100) : 100 },
     ];
 
     // Top products
@@ -720,7 +713,12 @@ router.post('/products', async (req, res, next) => {
       io,
     });
 
-    res.status(201).json({ success: true, productId: prod.id, message: 'Product created successfully and indexed for AI discovery.' });
+    res.status(201).json({
+      success: true,
+      productId: prod.id,
+      product: { ...prod, merchant_id: merchantId },
+      message: 'Product created successfully and indexed for AI discovery.',
+    });
   } catch (err) {
     next(err);
   }
@@ -1167,11 +1165,43 @@ router.post('/orders/:id/cancel', async (req, res, next) => {
     const cancelled = await cancelOrder(req.params.id, {
       cancelledBy: 'merchant',
       reason,
+      merchantId,
       io,
     });
 
     res.json({ success: true, order: cancelled });
   } catch (err) {
+    if (err.status) {
+      return res.status(err.status).json({ error: err.message });
+    }
+    next(err);
+  }
+});
+
+// POST /api/merchant/orders/:id/refund — Process an authoritative order refund
+router.post('/orders/:id/refund', async (req, res, next) => {
+  try {
+    const userId = getUserIdFromRequest(req);
+    const merchantId = await getMerchantIdForUser(userId);
+    const { amount, reason = 'Merchant initiated refund' } = req.body;
+
+    if (!merchantId) {
+      return res.status(403).json({ error: 'Merchant store required' });
+    }
+
+    const io = req.app.get('io');
+    const result = await processOrderRefund(req.params.id, {
+      amount,
+      reason,
+      merchantId,
+      io,
+    });
+
+    res.json(result);
+  } catch (err) {
+    if (err.status) {
+      return res.status(err.status).json({ error: err.message });
+    }
     next(err);
   }
 });
@@ -1212,7 +1242,7 @@ router.get('/analytics', async (req, res, next) => {
       timeClause = `AND o.created_at >= '${fromDate}'`;
     }
 
-    // 1. Fetch all canonical merchant orders in time range
+    // 1. Fetch all canonical merchant orders in time range (excluding test lab)
     const ordersRes = await query(`
       SELECT o.id,
              o.order_number,
@@ -1226,51 +1256,56 @@ router.get('/analytics', async (req, res, next) => {
              COALESCE(o.product_brand, p.brand, 'Store Catalog') as brand
       FROM orders o
       LEFT JOIN products p ON o.product_id = p.id
-      WHERE o.merchant_id = $1 ${timeClause}
+      WHERE o.merchant_id = $1 
+        AND (p.is_test_lab = false OR p.is_test_lab IS NULL)
+        ${timeClause}
       ORDER BY o.created_at DESC
     `, [merchantId]);
 
     const allOrders = ordersRes.rows;
 
-    // Filter valid completed/active orders (payment verified and NOT cancelled/failed/blocked)
+    // Filter valid completed/active orders (payment verified and NOT cancelled/failed/blocked/refunded)
     const validOrders = allOrders.filter((o) =>
       o.payment_status === 'VERIFIED' &&
-      !['CANCELLED', 'VOIDED', 'FAILED', 'BLOCKED', 'BLOCKED_INTEGRITY_EXCEPTION'].includes(o.order_status) &&
-      o.fulfillment_status !== 'CANCELLED'
+      !['CANCELLED', 'VOIDED', 'FAILED', 'BLOCKED', 'BLOCKED_INTEGRITY_EXCEPTION', 'REFUNDED'].includes(o.order_status) &&
+      o.fulfillment_status !== 'CANCELLED' &&
+      o.fulfillment_status !== 'REFUNDED'
+    );
+
+    const refundedOrders = allOrders.filter((o) =>
+      o.order_status === 'REFUNDED' || o.fulfillment_status === 'REFUNDED'
     );
 
     const completedOrdersCount = validOrders.length;
     const aiOriginatedRevenue = validOrders.reduce((sum, o) => sum + (parseFloat(o.total_amount) || 0), 0);
+    const refundedRevenue = refundedOrders.reduce((sum, o) => sum + (parseFloat(o.total_amount) || 0), 0);
+    const netRevenue = Math.max(0, aiOriginatedRevenue - refundedRevenue);
     const averageOrderValue = completedOrdersCount > 0 ? Math.round(aiOriginatedRevenue / completedOrdersCount) : 0;
 
     // 2. Fetch unique purchase intents for this merchant in time range
     let piTimeClause = '';
     if (fromDate) {
-      piTimeClause = `AND created_at >= '${fromDate}'`;
+      piTimeClause = `AND pi.created_at >= '${fromDate}'`;
     }
 
     const intentRes = await query(`
-      SELECT COUNT(DISTINCT id) as total_intents,
-             COUNT(DISTINCT id) FILTER (WHERE status IN ('completed', 'approved', 'paid')) as eligible_intents,
-             COUNT(DISTINCT id) FILTER (WHERE status = 'blocked') as blocked_intents
-      FROM purchase_intents
-      WHERE merchant_id = $1 ${piTimeClause}
+      SELECT COUNT(DISTINCT pi.id) as total_intents,
+             COUNT(DISTINCT pi.id) FILTER (WHERE pi.status IN ('completed', 'approved', 'paid') OR pi.policy_decision = 'ALLOW') as eligible_intents,
+             COUNT(DISTINCT pi.id) FILTER (WHERE pi.status = 'blocked' OR pi.policy_decision = 'BLOCK') as blocked_intents
+      FROM purchase_intents pi
+      LEFT JOIN products p ON pi.product_id = p.id
+      WHERE pi.merchant_id = $1 AND (p.is_test_lab = false OR p.is_test_lab IS NULL) ${piTimeClause}
     `, [merchantId]);
 
-    const rawTotalIntents = parseInt(intentRes.rows[0]?.total_intents || '0', 10);
-    const rawEligibleIntents = parseInt(intentRes.rows[0]?.eligible_intents || '0', 10);
-    const rawBlockedIntents = parseInt(intentRes.rows[0]?.blocked_intents || '0', 10);
+    const totalIntents = parseInt(intentRes.rows[0]?.total_intents || '0', 10);
+    const eligibleIntents = parseInt(intentRes.rows[0]?.eligible_intents || '0', 10);
+    const blockedIntents = parseInt(intentRes.rows[0]?.blocked_intents || '0', 10);
 
-    // Ensure mathematical consistency: eligible intents cannot be less than completed orders
-    const totalIntents = Math.max(rawTotalIntents, completedOrdersCount);
-    const eligibleIntents = Math.max(rawEligibleIntents, completedOrdersCount);
-    const blockedIntents = rawBlockedIntents;
-
-    const conversionRate = eligibleIntents > 0
-      ? Math.round((completedOrdersCount / eligibleIntents) * 1000) / 10
+    const conversionRate = totalIntents > 0
+      ? Math.round((completedOrdersCount / totalIntents) * 1000) / 10
       : (completedOrdersCount > 0 ? 100 : 0);
 
-    const conversionFraction = `${completedOrdersCount} / ${eligibleIntents}`;
+    const conversionFraction = `${completedOrdersCount} / ${totalIntents || completedOrdersCount}`;
 
     // 3. Outcomes Breakdown
     const outcomes = {
@@ -1283,28 +1318,22 @@ router.get('/analytics', async (req, res, next) => {
       cancelled: allOrders.filter((o) => o.fulfillment_status === 'CANCELLED' || o.order_status === 'CANCELLED').length,
       blocked: allOrders.filter((o) => o.order_status === 'BLOCKED_INTEGRITY_EXCEPTION' || o.order_status === 'BLOCKED').length,
       failed: allOrders.filter((o) => o.payment_status === 'FAILED' || o.order_status === 'FAILED').length,
-      refunded: allOrders.filter((o) => o.fulfillment_status === 'REFUNDED' || o.order_status === 'REFUNDED').length,
-      reconciliationRequired: 0,
+      refunded: refundedOrders.length,
+      reconciliationRequired: allOrders.filter((o) => o.fulfillment_status === 'RECONCILIATION_REQUIRED' || o.order_status === 'RECONCILIATION_REQUIRED').length,
     };
 
-    // 4. Funnel Stages (Idempotent and Authoritative)
+    // 4. Funnel Stages (Derived 100% from canonical database records)
     const prodRes = await query('SELECT COUNT(*) as total FROM products WHERE merchant_id = $1 AND (is_test_lab = false OR is_test_lab IS NULL)', [merchantId]);
     const totalProducts = parseInt(prodRes.rows[0]?.total || '0', 10);
 
-    const searchCount = Math.max(totalIntents * 2, totalProducts, completedOrdersCount, 1);
-    const evaluatedCount = Math.max(totalIntents, completedOrdersCount);
-    const authorizedCount = eligibleIntents;
-    const paymentVerifiedCount = completedOrdersCount;
-    const ordersCreatedCount = allOrders.length;
-    const completedFinalCount = completedOrdersCount;
-
+    const baseCount = Math.max(totalProducts, totalIntents, completedOrdersCount, 1);
     const funnel = [
-      { stage: 'AI Catalog Searches', count: searchCount, percentage: 100 },
-      { stage: 'Products Evaluated by Agent', count: evaluatedCount, percentage: Math.round((evaluatedCount / searchCount) * 100) },
-      { stage: 'Cart Created & Authorized', count: authorizedCount, percentage: Math.round((authorizedCount / searchCount) * 100) },
-      { stage: 'Payment Verified & Captured', count: paymentVerifiedCount, percentage: Math.round((paymentVerifiedCount / searchCount) * 100) },
-      { stage: 'Orders Created in Ledger', count: ordersCreatedCount, percentage: Math.round((ordersCreatedCount / searchCount) * 100) },
-      { stage: 'Completed AI Purchases', count: completedFinalCount, percentage: Math.round((completedFinalCount / searchCount) * 100) },
+      { stage: 'Active Catalog SKUs', count: totalProducts, percentage: 100 },
+      { stage: 'Purchase Intents Initiated', count: totalIntents, percentage: totalProducts > 0 ? Math.min(100, Math.round((totalIntents / totalProducts) * 100)) : 100 },
+      { stage: 'Policy & Safety Approved', count: eligibleIntents, percentage: totalIntents > 0 ? Math.round((eligibleIntents / totalIntents) * 100) : 100 },
+      { stage: 'Payment Verified & Captured', count: completedOrdersCount, percentage: totalIntents > 0 ? Math.round((completedOrdersCount / totalIntents) * 100) : 100 },
+      { stage: 'Orders Created in Ledger', count: allOrders.length, percentage: totalIntents > 0 ? Math.round((allOrders.length / totalIntents) * 100) : 100 },
+      { stage: 'Completed AI Purchases', count: completedOrdersCount, percentage: totalIntents > 0 ? Math.round((completedOrdersCount / totalIntents) * 100) : 100 },
     ];
 
     // 5. Revenue by Brand
@@ -1729,8 +1758,8 @@ router.post('/store/test-webhook', async (req, res, next) => {
     const eventId = `evt_ping_${Date.now()}`;
     const timestamp = Date.now();
     const payload = JSON.stringify({ event: 'ping', merchantId, timestamp });
-    const dummySecret = 'whsec_test_verify';
-    const signature = crypto.createHmac('sha256', dummySecret).update(payload).digest('hex');
+    const testSecret = env.RAZORPAY_TEST_WEBHOOK_SECRET || crypto.randomBytes(24).toString('hex');
+    const signature = crypto.createHmac('sha256', testSecret).update(payload).digest('hex');
 
     await query('UPDATE merchants SET last_webhook_delivery_at = NOW() WHERE id = $1', [merchantId]);
 

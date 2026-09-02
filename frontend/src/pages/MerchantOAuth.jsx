@@ -85,9 +85,10 @@ export default function MerchantOAuth() {
     );
   }
 
-  const isFlipkart = merchant?.merchantName?.toLowerCase().includes('flipkart');
-  const badgeColor = isFlipkart ? '#2874f0' : '#0f172a';
   const initial = (merchant?.merchantName || 'S').charAt(0);
+  const colors = ['#0f172a', '#0284c7', '#059669', '#7c3aed', '#d97706'];
+  const charCode = (merchant?.merchantName || 'Store').charCodeAt(0) || 0;
+  const badgeColor = colors[charCode % colors.length];
 
   return (
     <div className="oauth-page-container">
@@ -102,7 +103,7 @@ export default function MerchantOAuth() {
               <strong style={{ fontSize: '1rem', color: '#0f172a', display: 'block' }}>
                 {merchant.merchantName}
               </strong>
-              <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Customer OAuth Portal</span>
+              <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Store Connector Authorization</span>
             </div>
           </div>
 

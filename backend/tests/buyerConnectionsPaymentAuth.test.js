@@ -22,11 +22,7 @@ describe('Track 01: Buyer Connections & Payment Authorization Hardening Suite', 
     testBuyerUserId = userRes.rows[0]?.id;
     buyerToken = generateAccessToken({ ...userRes.rows[0], role: 'BUYER' });
 
-    // 2. Fetch test agent
-    const agentRes = await query("SELECT id FROM agents WHERE status = 'active' LIMIT 1");
-    testAgentId = agentRes.rows[0]?.id;
-
-    // 3. Fetch verified merchant & in-stock product
+    // 2. Fetch verified merchant & in-stock product
     const prodRes = await query(`
       SELECT p.*, m.id as m_id 
       FROM products p 
@@ -37,7 +33,21 @@ describe('Track 01: Buyer Connections & Payment Authorization Hardening Suite', 
     testProduct = prodRes.rows[0];
     testMerchantId = testProduct.merchant_id;
 
-    // 5. Clean existing payment methods and past test transactions for clean spend isolation
+    // 3. Create dedicated test policy & agent for buyer with matching categories
+    const polRes = await query(`
+      INSERT INTO policies (name, max_transaction, daily_budget, approval_threshold, allowed_categories, verified_merchants_only, version)
+      VALUES ('Connections Test Policy', 50000, 100000, 2000, ARRAY['Electronics', 'Peripherals', 'Hardware', 'Industrial Hardware', 'Electronics & Hardware', $1], true, 1)
+      RETURNING *
+    `, [testProduct.category]);
+
+    const aRes = await query(`
+      INSERT INTO agents (owner_id, name, description, policy_id, status)
+      VALUES ($1, 'Connections Test Agent', 'Agent for connections tests', $2, 'active')
+      RETURNING *
+    `, [testBuyerUserId, polRes.rows[0].id]);
+    testAgentId = aRes.rows[0].id;
+
+    // 4. Clean existing payment methods and past test transactions for clean spend isolation
     await query("DELETE FROM approvals WHERE purchase_intent_id IN (SELECT id FROM purchase_intents WHERE user_id = $1)", [testBuyerUserId]);
     await query("DELETE FROM invoices WHERE order_id IN (SELECT id FROM orders WHERE user_id = $1)", [testBuyerUserId]);
     await query("DELETE FROM orders WHERE user_id = $1", [testBuyerUserId]);
@@ -61,18 +71,18 @@ describe('Track 01: Buyer Connections & Payment Authorization Hardening Suite', 
     });
     testPaymentMethodId = pm.id;
 
-    // 6. Set generous buyer preferences
+    // 5. Set generous buyer preferences
     await query(`
       INSERT INTO user_preferences (user_id, monthly_budget, auto_purchase_limit, categories, preferred_brands, purchase_behavior, updated_at)
-      VALUES ($1, 1000000, 50000, ARRAY['Electronics', 'Peripherals', 'Software & Licenses', 'Office Supplies'], ARRAY['Apple', 'Sony', 'Ambrane', 'Logitech'], 'auto_within_limit', NOW())
+      VALUES ($1, 1000000, 50000, ARRAY['Electronics', 'Peripherals', 'Software & Licenses', 'Office Supplies', 'Industrial Hardware', 'Electronics & Hardware', $2], ARRAY['Apple', 'Sony', 'Ambrane', 'Logitech', 'IndustrialBrand'], 'auto_within_limit', NOW())
       ON CONFLICT (user_id) DO UPDATE SET
         monthly_budget = 1000000,
         auto_purchase_limit = 50000,
-        categories = ARRAY['Electronics', 'Peripherals', 'Software & Licenses', 'Office Supplies'],
-        preferred_brands = ARRAY['Apple', 'Sony', 'Ambrane', 'Logitech'],
+        categories = ARRAY['Electronics', 'Peripherals', 'Software & Licenses', 'Office Supplies', 'Industrial Hardware', 'Electronics & Hardware', $2],
+        preferred_brands = ARRAY['Apple', 'Sony', 'Ambrane', 'Logitech', 'IndustrialBrand'],
         purchase_behavior = 'auto_within_limit',
         updated_at = NOW()
-    `, [testBuyerUserId]);
+    `, [testBuyerUserId, testProduct.category]);
   });
 
   // TEST 1: Merchant connected + catalog available -> Product discovery succeeds

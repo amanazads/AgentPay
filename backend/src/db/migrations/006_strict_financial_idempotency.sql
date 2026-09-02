@@ -20,6 +20,7 @@ ON invoices (order_id)
 WHERE order_id IS NOT NULL;
 
 -- 4. Ensure unique webhook events per provider event ID
+ALTER TABLE webhook_inbox ADD COLUMN IF NOT EXISTS provider_event_id VARCHAR(120);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_webhook_inbox_unique_provider_event 
 ON webhook_inbox (provider_event_id) 
 WHERE provider_event_id IS NOT NULL;

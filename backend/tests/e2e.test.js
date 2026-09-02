@@ -1,9 +1,12 @@
+import { jest } from '@jest/globals';
 import crypto from 'crypto';
 import { evaluatePurchaseIntent } from '../src/services/decisionEngine.js';
 import { createPaymentOrder, verifyPayment } from '../src/services/paymentService.js';
 import { processApproval } from '../src/services/approvalService.js';
 import { query } from '../src/config/database.js';
 import env from '../src/config/env.js';
+
+jest.setTimeout(30000);
 
 describe('AgentPay End-to-End Autonomous Commerce Lifecycle', () => {
   let policyId;
@@ -71,7 +74,6 @@ describe('AgentPay End-to-End Autonomous Commerce Lifecycle', () => {
     if (testMerchantId) {
       await query('DELETE FROM transactions WHERE purchase_intent_id IN (SELECT id FROM purchase_intents WHERE merchant_id = $1)', [testMerchantId]);
       await query('DELETE FROM approvals WHERE purchase_intent_id IN (SELECT id FROM purchase_intents WHERE merchant_id = $1)', [testMerchantId]);
-      await query('DELETE FROM audit_events WHERE purchase_intent_id IN (SELECT id FROM purchase_intents WHERE merchant_id = $1)', [testMerchantId]);
       await query('DELETE FROM purchase_intents WHERE merchant_id = $1', [testMerchantId]);
       await query('DELETE FROM products WHERE merchant_id = $1', [testMerchantId]);
       await query('DELETE FROM merchants WHERE id = $1', [testMerchantId]);
@@ -83,7 +85,6 @@ describe('AgentPay End-to-End Autonomous Commerce Lifecycle', () => {
       await query('DELETE FROM event_notifications WHERE user_id = $1', [userId]);
       await query('DELETE FROM transactions WHERE user_id = $1', [userId]);
       await query('DELETE FROM approvals WHERE purchase_intent_id IN (SELECT id FROM purchase_intents WHERE user_id = $1)', [userId]);
-      await query('DELETE FROM audit_events WHERE user_id = $1', [userId]);
       await query('DELETE FROM purchase_intents WHERE user_id = $1', [userId]);
       await query('DELETE FROM agents WHERE owner_id = $1', [userId]);
       await query('DELETE FROM users WHERE id = $1', [userId]);

@@ -652,7 +652,7 @@ export default function Landing() {
                     <ul className="ap-bullet-list">
                       <li>Prevents double-booking across concurrent AI agents</li>
                       <li>Auto-releases inventory if policy fails or transaction expires</li>
-                      <li>Guarantees 100% accurate fulfillment execution</li>
+                      <li>Server-authoritative monotonic fulfillment state machine</li>
                     </ul>
                   </div>
                   <div className="ap-code-preview">

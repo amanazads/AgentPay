@@ -24,7 +24,6 @@ const navSections = [
       { to: '/risk', icon: '🛡', label: 'Risk Center' },
       { to: '/audit', icon: '📋', label: 'Audit Trail' },
       { to: '/security-lab', icon: '🔒', label: 'Security Lab' },
-      { to: '/simulation', icon: '▶', label: 'Simulation' },
     ],
   },
   {

@@ -16,8 +16,7 @@ export class MerchantConnectionService {
    */
   async getUserConnections(userId) {
     if (!userId) {
-      const defaultUser = await query("SELECT id FROM users WHERE role = 'BUYER' OR role = 'user' LIMIT 1");
-      userId = defaultUser.rows[0]?.id;
+      throw new Error('User ID is required for merchant connections retrieval');
     }
 
     const allMerchantsRes = await query(`

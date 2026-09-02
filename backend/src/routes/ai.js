@@ -17,6 +17,9 @@ import { parseBuyerIntent } from '../services/intentParser.js';
 import { findEligibleProducts } from '../services/candidateFilter.js';
 import { validatePurchaseCandidate, PurchaseValidationError } from '../services/purchaseGate.js';
 import { acquireIdempotencyLock, releaseIdempotencyLock } from '../services/idempotencyService.js';
+import { calculatePrice } from '../services/pricingService.js';
+import { generateQuote, verifyQuoteForCheckout, QuoteVerificationError, QuoteErrorCodes } from '../services/quoteService.js';
+import { reserveInventory } from '../services/inventoryService.js';
 import { logger } from '../utils/logger.js';
 
 const router = Router();
@@ -238,50 +241,123 @@ router.get('/catalog/:productId', async (req, res, next) => {
  */
 router.post('/quote', async (req, res, next) => {
   try {
-    const { productId, quantity = 1, deliveryMethod = 'STANDARD' } = req.body || {};
-    if (!productId) return res.status(400).json({ error: 'productId is required' });
+    const {
+      productId,
+      quantity = 1,
+      deliveryMethod = 'STANDARD',
+      userId = null,
+      agentId = null,
+      durationMinutes = 15,
+    } = req.body || {};
 
-    const pRes = await query(`
-      SELECT p.*, m.name as merchant_name, m.is_verified as merchant_verified
-      FROM products p
-      JOIN merchants m ON p.merchant_id = m.id
-      WHERE p.id = $1 AND p.in_stock = true
-    `, [productId]);
-
-    if (pRes.rows.length === 0) {
-      return res.status(404).json({ error: 'Product not found or out of stock' });
+    if (!productId) {
+      return res.status(400).json({ error: 'productId is required', code: QuoteErrorCodes.INVALID_INPUT });
     }
 
-    const product = pRes.rows[0];
-    const unitPrice = parseFloat(product.price);
-    const subtotal = unitPrice * parseInt(quantity);
-    const deliveryFee = deliveryMethod === 'EXPRESS' ? 199 : 0;
-    const taxAmount = Math.round(subtotal * 0.18);
-    const totalAmount = subtotal + deliveryFee;
+    const quote = await generateQuote({
+      productId,
+      quantity: parseInt(quantity, 10) || 1,
+      deliveryMethod,
+      userId,
+      agentId,
+      durationMinutes: parseInt(durationMinutes, 10) || 15,
+    });
 
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-    const quotePayload = `${product.id}|${quantity}|${totalAmount}|${expiresAt}`;
-    const quoteSignature = crypto.createHmac('sha256', env.JWT_SECRET || 'agentpay_quote_secret').update(quotePayload).digest('hex');
+    res.json(quote);
+  } catch (err) {
+    if (err instanceof QuoteVerificationError) {
+      return res.status(err.code === QuoteErrorCodes.PRODUCT_NOT_FOUND ? 404 : 400).json({
+        error: err.message,
+        code: err.code,
+        details: err.details,
+      });
+    }
+    next(err);
+  }
+});
+
+/**
+ * POST /api/ai/checkout
+ * Track 01 Requirement #4: Cryptographically Verified Secure Checkout Session
+ */
+router.post('/checkout', async (req, res, next) => {
+  try {
+    const {
+      quote,
+      quoteId,
+      productId,
+      quantity = 1,
+      deliveryMethod = 'STANDARD',
+      deliveryAddress,
+      agentId = null,
+    } = req.body || {};
+
+    const userId = getUserIdFromRequest(req);
+    const quoteInput = quote || quoteId;
+
+    if (!quoteInput && !productId) {
+      return res.status(400).json({
+        error: 'Either quote/quoteId or productId is required for checkout',
+        code: QuoteErrorCodes.INVALID_INPUT,
+      });
+    }
+
+    let verifiedQuote = null;
+    if (quoteInput) {
+      const verification = await verifyQuoteForCheckout(quoteInput, {
+        userId,
+        agentId,
+        requestedQuantity: quantity,
+        requestedProductId: productId,
+        checkPolicy: true,
+      });
+      verifiedQuote = verification.quote;
+    } else {
+      verifiedQuote = await generateQuote({
+        productId,
+        quantity: parseInt(quantity, 10) || 1,
+        deliveryMethod,
+        userId,
+        agentId,
+      });
+    }
+
+    const checkoutId = `chk_${verifiedQuote.quoteId.replace('quote_', '').replace('qt_', '')}_${Date.now().toString(36)}`;
 
     res.json({
-      protocol: 'agentic-commerce/v1',
-      quoteId: `quote_${crypto.randomBytes(8).toString('hex')}`,
-      productId: product.id,
-      productName: product.name,
-      merchantId: product.merchant_id,
-      merchantName: product.merchant_name,
-      quantity: parseInt(quantity),
-      unitPrice,
-      subtotal,
-      deliveryMethod,
-      deliveryFee,
-      taxAmount,
-      totalAmount,
-      currency: 'INR',
-      quoteExpiresAt: expiresAt,
-      priceLockSignature: quoteSignature,
+      success: true,
+      status: 'READY_FOR_PAYMENT',
+      checkoutId,
+      quoteId: verifiedQuote.quoteId,
+      quote: verifiedQuote,
+      product: {
+        id: verifiedQuote.productId,
+        merchantId: verifiedQuote.merchantId,
+        unitPrice: verifiedQuote.unitPrice,
+        quantity: verifiedQuote.quantity,
+      },
+      pricing: {
+        unitPrice: verifiedQuote.unitPrice,
+        quantity: verifiedQuote.quantity,
+        subtotal: verifiedQuote.subtotal,
+        deliveryFee: verifiedQuote.deliveryFee,
+        tax: verifiedQuote.tax,
+        totalAmount: verifiedQuote.totalAmount,
+        currency: verifiedQuote.currency,
+      },
+      expiresAt: verifiedQuote.expiration || verifiedQuote.expiresAt,
+      signature: verifiedQuote.signature || verifiedQuote.priceLockSignature,
+      deliveryAddress: deliveryAddress || null,
     });
   } catch (err) {
+    if (err instanceof QuoteVerificationError) {
+      return res.status(400).json({
+        success: false,
+        error: err.message,
+        code: err.code,
+        details: err.details,
+      });
+    }
     next(err);
   }
 });
@@ -290,6 +366,9 @@ router.post('/quote', async (req, res, next) => {
  * POST /api/ai/chat — Conversational AI Buyer Agent Procurement
  */
 router.post('/chat', requireAuth, requireBuyer, async (req, res, next) => {
+  let idempotencyKey = null;
+  let lockAcquired = false;
+
   try {
     const { message, agent_id } = req.body || {};
     if (!message) {
@@ -320,10 +399,19 @@ router.post('/chat', requireAuth, requireBuyer, async (req, res, next) => {
     let targetAgentId = agent_id;
     let agentName = 'Procurement Agent';
     if (targetAgentId) {
-      const aRes = await query('SELECT name FROM agents WHERE id = $1', [targetAgentId]);
-      if (aRes.rows.length > 0) agentName = aRes.rows[0].name;
+      const aRes = await query('SELECT name, owner_id FROM agents WHERE id = $1', [targetAgentId]);
+      if (aRes.rows.length === 0) {
+        return res.status(404).json({ error: 'Agent not found' });
+      }
+      const agentRecord = aRes.rows[0];
+      const uRes = await query('SELECT role FROM users WHERE id::text = $1', [finalUserId]);
+      const role = (uRes.rows[0]?.role || '').toUpperCase();
+      if (role !== 'ADMIN' && agentRecord.owner_id && agentRecord.owner_id !== finalUserId) {
+        return res.status(403).json({ error: 'Unauthorized: You do not own the specified agent' });
+      }
+      agentName = agentRecord.name;
     } else {
-      const aRes = await query("SELECT id, name FROM agents WHERE name ILIKE '%Procurement%' LIMIT 1");
+      const aRes = await query('SELECT id, name FROM agents WHERE owner_id::text = $1 ORDER BY created_at ASC LIMIT 1', [finalUserId]);
       if (aRes.rows.length > 0) {
         targetAgentId = aRes.rows[0].id;
         agentName = aRes.rows[0].name;
@@ -376,9 +464,14 @@ router.post('/chat', requireAuth, requireBuyer, async (req, res, next) => {
       matchedRules: p.matchedRules || [],
     }));
 
-    const price = parseFloat(product.price);
+    const pricing = calculatePrice({
+      product,
+      quantity: parsedIntent.quantity || 1,
+      deliveryMethod: 'STANDARD',
+    });
+    const price = pricing.totalAmount;
     const clientKey = req.headers['idempotency-key'] || req.body?.idempotency_key;
-    const idempotencyKey = clientKey || crypto.createHash('sha256').update(`${finalUserId}_${product.id}_${price}_${parsedIntent.rawQuery || message}`).digest('hex');
+    idempotencyKey = clientKey || crypto.createHash('sha256').update(`${finalUserId}_${product.id}_${price}_${parsedIntent.rawQuery || message}`).digest('hex');
 
     // 7. Create Merchant Cart & Checkout through Adapter
     const merchantAdapter = await commerceOrchestrator.getAdapter(product.merchant_id);
@@ -389,10 +482,10 @@ router.post('/chat', requireAuth, requireBuyer, async (req, res, next) => {
     }
 
     // 8. Distributed Idempotency Concurrency Guard
-    const lockAcquired = await acquireIdempotencyLock(idempotencyKey, 30);
+    lockAcquired = await acquireIdempotencyLock(idempotencyKey, 60);
     if (!lockAcquired) {
       logger.info('Chat', `Concurrent in-flight request detected for key ${idempotencyKey} — awaiting primary completion.`);
-      for (let i = 0; i < 20; i++) {
+      for (let i = 0; i < 50; i++) {
         await new Promise((r) => setTimeout(r, 100));
         const existingOrderRes = await query(`
           SELECT o.* FROM orders o
@@ -436,12 +529,16 @@ router.post('/chat', requireAuth, requireBuyer, async (req, res, next) => {
       const fallbackIntentRes = await query('SELECT * FROM purchase_intents WHERE idempotency_key = $1', [idempotencyKey]);
       if (fallbackIntentRes.rows.length > 0) {
         const pi = fallbackIntentRes.rows[0];
+        const existingOrderRes = await query('SELECT * FROM orders WHERE purchase_intent_id = $1', [pi.id]);
+        const confirmedOrder = existingOrderRes.rows[0] || null;
+        const invRes = confirmedOrder ? await query('SELECT * FROM invoices WHERE order_id = $1', [confirmedOrder.id]) : { rows: [] };
+
         return res.json({
           status: 'MATCH_FOUND',
-          execution_status: pi.status === 'blocked' ? 'BLOCKED' : pi.status === 'approval_required' ? 'APPROVAL_REQUIRED' : 'IN_PROGRESS',
+          execution_status: pi.status === 'blocked' ? 'BLOCKED' : pi.status === 'approval_required' ? 'APPROVAL_REQUIRED' : (confirmedOrder ? 'COMPLETED' : 'IN_PROGRESS'),
           is_duplicate: true,
           agent_name: agentName,
-          reply: `Processing transaction for **${product.name}** (Intent ID: ${pi.id}).`,
+          reply: confirmedOrder ? `I found the best match: **${product.name}** from *${product.merchant_name}* for **₹${price.toLocaleString('en-IN')}**.\n\nAll requirements and spending policies verified. Autonomous purchase confirmed (Order: ${confirmedOrder.order_number}).` : `Processing transaction for **${product.name}** (Intent ID: ${pi.id}).`,
           intent_parsed: parsedIntent,
           recommendation: {
             product_id: product.id,
@@ -455,9 +552,29 @@ router.post('/chat', requireAuth, requireBuyer, async (req, res, next) => {
             specifications: product.specifications || {},
           },
           comparison,
+          merchant_checkout: merchantCheckout,
+          order: confirmedOrder,
+          invoice: invRes.rows[0] || null,
           purchase_intent: pi,
         });
       }
+
+      return res.json({
+        status: 'MATCH_FOUND',
+        execution_status: 'IN_PROGRESS',
+        is_duplicate: true,
+        agent_name: agentName,
+        reply: `Concurrent request is being processed for **${product.name}**.`,
+        intent_parsed: parsedIntent,
+        recommendation: {
+          product_id: product.id,
+          name: product.name,
+          brand: product.brand,
+          price,
+          merchant_name: product.merchant_name,
+          merchant_id: product.merchant_id,
+        },
+      });
     }
 
     let purchaseIntent;
@@ -565,8 +682,27 @@ router.post('/chat', requireAuth, requireBuyer, async (req, res, next) => {
       //      without going through signature verification
       // ──────────────────────────────────────────────────────────────────────
 
+      let quote = null;
+      try {
+        quote = await generateQuote({
+          productId: product.id,
+          quantity: parsedIntent.quantity || 1,
+          userId: finalUserId,
+          agentId: targetAgentId,
+          reserveStock: true,
+        });
+        const assignedQuoteId = quote?.quoteId || quote?.quote_id;
+        if (assignedQuoteId) {
+          await query('UPDATE purchase_intents SET quote_id = $1 WHERE id = $2', [assignedQuoteId, purchaseIntent.id]);
+        }
+      } catch (qErr) {
+        logger.warn('Chat', `Quote generation notice: ${qErr.message}`);
+      }
+
+      const effectiveQuoteId = quote?.quoteId || quote?.quote_id || null;
+
       // Step 1: Create Razorpay sandbox order (real SDK call or crypto-randomBytes fallback)
-      const paymentOrder = await createPaymentOrder({ purchaseIntentId: purchaseIntent.id, io });
+      const paymentOrder = await createPaymentOrder({ purchaseIntentId: purchaseIntent.id, quoteId: effectiveQuoteId, io });
 
       // Step 2: Generate a traceable sandbox payment reference and compute a valid HMAC.
       //         Uses the same HMAC formula that RazorpayTestProvider.verifyPayment() validates:
@@ -646,7 +782,9 @@ router.post('/chat', requireAuth, requireBuyer, async (req, res, next) => {
         evaluation,
       });
     } finally {
-      await releaseIdempotencyLock(idempotencyKey);
+      if (lockAcquired && idempotencyKey) {
+        await releaseIdempotencyLock(idempotencyKey);
+      }
     }
   } catch (err) {
     next(err);

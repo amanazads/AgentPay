@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
+import { describe, it, expect, beforeAll, afterAll, jest } from '@jest/globals';
 import request from 'supertest';
 import express from 'express';
 import { query } from '../src/config/database.js';
@@ -9,6 +9,8 @@ import { processRazorpayWebhook } from '../src/services/webhookService.js';
 import { reconcileOrders } from '../src/services/reconciliationService.js';
 import { authenticateUser } from '../src/middleware/authMiddleware.js';
 import { generateAccessToken } from '../src/utils/authUtils.js';
+
+jest.setTimeout(30000);
 
 const app = express();
 app.use(express.json());
@@ -44,6 +46,14 @@ describe('Track 01: Strict Financial Idempotency & Concurrency Safety Suite', ()
           preferred_brands = ARRAY['Apple', 'Sony', 'Ambrane'],
           purchase_behavior = 'auto_within_limit',
           updated_at = NOW()
+      `, [buyerUserId]);
+
+      await query(`
+        UPDATE policies
+        SET approval_threshold = 100000,
+            max_transaction = 200000,
+            daily_budget = 1000000
+        WHERE id IN (SELECT policy_id FROM agents WHERE owner_id = $1 OR policy_id IS NOT NULL)
       `, [buyerUserId]);
     }
   });

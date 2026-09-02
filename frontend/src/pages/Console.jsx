@@ -123,7 +123,7 @@ export default function Console() {
 
         {simResult && (
           <div style={{ marginTop: '1rem', padding: '0.85rem 1rem', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, fontSize: '0.8125rem', color: '#166534' }}>
-            <strong>Benchmark Results:</strong> Evaluated 1,000 cases • Accuracy: <strong>{simResult.accuracy || '100%'}</strong> • Avg Decision Latency: <strong>{simResult.avgLatencyMs || '2.1'}ms</strong> • Prevented Unsafe Spend: <strong>₹{parseFloat(simResult.preventedSpend || 174999).toLocaleString('en-IN')}</strong>
+            <strong>Benchmark Results:</strong> Evaluated {simResult.totalCases ?? 1000} cases • Outcome Consistency: <strong>{simResult.policyOutcomeConsistencyPct ?? simResult.accuracyPct ?? 100}%</strong> • Avg Latency: <strong>{simResult.latency?.averageMs ?? simResult.averageDecisionLatencyMs ?? 0}ms</strong> (p95: {simResult.latency?.p95Ms ?? 0}ms) • Prevented Unsafe Spend: <strong>₹{(simResult.preventedUnauthorizedSpendINR ?? simResult.preventedSpend ?? 0).toLocaleString('en-IN')}</strong>
           </div>
         )}
 
@@ -148,7 +148,7 @@ export default function Console() {
         </div>
 
         <div className="console-metric-card">
-          <div className="console-metric-label">Payment Sandbox</div>
+          <div className="console-metric-label">Payment Rails</div>
           <div className="console-metric-val" style={{ color: '#0f172a' }}>Razorpay Test</div>
           <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>HMAC-SHA256 Active</div>
         </div>

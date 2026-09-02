@@ -419,13 +419,13 @@ export default function Preferences() {
               loading={testingPolicy}
               disabled={!testQuery.trim()}
             >
-              Simulate Policy
+              Evaluate Policy
             </Button>
           </div>
 
           {/* Quick Test Chips */}
           <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '1rem' }}>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', alignSelf: 'center' }}>Try sample:</span>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', alignSelf: 'center' }}>Example queries:</span>
             <button
               type="button"
               className="tag-toggle-btn"

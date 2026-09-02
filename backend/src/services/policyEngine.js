@@ -1,8 +1,10 @@
 import { query } from '../config/database.js';
 import { logger } from '../utils/logger.js';
-import { getSpendingSummary, calculateMonthlySpend } from './spendingService.js';
+import { getSpendingSummary, calculateMonthlySpend, calculateDailySpend } from './spendingService.js';
 import { merchantConnectionService } from './merchantConnectionService.js';
 import { paymentMethodService } from './paymentMethodService.js';
+import { calculatePrice } from './pricingService.js';
+import env from '../config/env.js';
 
 /**
  * Deterministic Policy Engine for AgentPay
@@ -24,6 +26,7 @@ export async function evaluatePolicy({
   deliveryFee = 0,
   deliveryDays = null,
   idempotencyKey,
+  quotePrice = null,
 }) {
   const startTime = Date.now();
   const rulesEvaluated = [];
@@ -282,17 +285,32 @@ export async function evaluatePolicy({
   }
 
   // 9. Price Integrity / Price Manipulation Check
-  const catalogPrice = parseFloat(product.price);
   const requestedItemTotal = parseFloat(amount);
-  const expectedItemTotal = catalogPrice * quantity;
-  const tolerancePct = parseFloat(agent.price_tolerance_pct || 2.0);
-  const priceDiffPct = Math.abs((requestedItemTotal - expectedItemTotal) / expectedItemTotal) * 100;
+  const finalDeliveryFee = parseFloat(deliveryFee || product.delivery_fee || 0);
+  const effectiveProduct = quotePrice ? { ...product, price: parseFloat(quotePrice) } : product;
+  const calculatedPricing = calculatePrice({
+    product: effectiveProduct,
+    quantity,
+    deliveryMethod: (finalDeliveryFee >= 199 || deliveryDays === 1) ? 'EXPRESS' : 'STANDARD',
+  });
+  const expectedSubtotal = calculatedPricing.subtotal;
+  const expectedTotal = calculatedPricing.totalAmount;
+  const tolerancePct = parseFloat(agent.price_tolerance_pct || env.PRICE_SURGE_TOLERANCE_PERCENT || 2.0);
 
-  const isPriceValid = priceDiffPct <= tolerancePct;
+  // Price surge occurs only if requested amount exceeds expected total and subtotal by more than tolerance
+  const isSurge = requestedItemTotal > (expectedTotal * (1 + tolerancePct / 100)) && requestedItemTotal > (expectedSubtotal * (1 + tolerancePct / 100));
+  const priceDiffPct = isSurge
+    ? Math.min(
+        ((requestedItemTotal - expectedSubtotal) / expectedSubtotal) * 100,
+        ((requestedItemTotal - expectedTotal) / expectedTotal) * 100
+      )
+    : 0;
+
+  const isPriceValid = !isSurge;
   rulesEvaluated.push({
     rule: 'PRICE_TOLERANCE',
     passed: isPriceValid,
-    details: `Price diff ${priceDiffPct.toFixed(2)}% (tolerance: ${tolerancePct}%, requested: ₹${requestedItemTotal}, expected: ₹${expectedItemTotal})`,
+    details: `Price diff ${priceDiffPct.toFixed(2)}% (tolerance: ${tolerancePct}%, requested: ₹${requestedItemTotal}, expectedTotal: ₹${expectedTotal})`,
   });
 
   if (!isPriceValid) {
@@ -300,7 +318,7 @@ export async function evaluatePolicy({
     return {
       decision: 'BLOCK',
       rule: 'PRICE_MANIPULATION_DETECTED',
-      reason: `Requested price ₹${requestedItemTotal} deviates by ${priceDiffPct.toFixed(1)}% from verified catalog price ₹${expectedItemTotal} (tolerance max ${tolerancePct}%)`,
+      reason: `Requested price ₹${requestedItemTotal} deviates by ${priceDiffPct.toFixed(1)}% from verified catalog price ₹${expectedTotal} (tolerance max ${tolerancePct}%)`,
       rulesEvaluated,
       violatedRules,
       policyVersion,
@@ -310,7 +328,6 @@ export async function evaluatePolicy({
   }
 
   // 10. Shipping Cost & Total Payable Calculation
-  const finalDeliveryFee = parseFloat(deliveryFee || 0);
   const totalPayable = requestedItemTotal + finalDeliveryFee;
 
   // 11. Delivery SLA Hard Constraint Check
@@ -403,6 +420,39 @@ export async function evaluatePolicy({
     };
   }
 
+  // 13b. Authoritative Daily Spending Budget Check
+  const dailyBudget = agent.daily_budget ? parseFloat(agent.daily_budget) : 100000;
+  const { dailySpent } = await calculateDailySpend(userId, agentId);
+  const remainingDailyBudget = Math.max(0, dailyBudget - dailySpent);
+  const withinDailyBudget = totalPayable <= remainingDailyBudget;
+
+  rulesEvaluated.push({
+    rule: 'DAILY_BUDGET_LIMIT',
+    passed: withinDailyBudget,
+    details: `Spent today: ₹${dailySpent}, Remaining daily: ₹${remainingDailyBudget}, Requested: ₹${totalPayable}, Daily Budget: ₹${dailyBudget}`,
+  });
+
+  if (!withinDailyBudget) {
+    const dailyOverage = totalPayable - remainingDailyBudget;
+    violatedRules.push('DAILY_BUDGET_EXCEEDED');
+    return {
+      decision: 'BLOCK',
+      rule: 'DAILY_BUDGET_EXCEEDED',
+      reason: `Purchase of ₹${totalPayable.toLocaleString('en-IN')} exceeds daily spending budget of ₹${dailyBudget.toLocaleString('en-IN')} by ₹${dailyOverage.toLocaleString('en-IN')} (Spent today: ₹${dailySpent.toLocaleString('en-IN')}, Remaining: ₹${remainingDailyBudget.toLocaleString('en-IN')})`,
+      rulesEvaluated,
+      violatedRules,
+      policyVersion,
+      dailyBudget,
+      dailySpent,
+      remainingDailyBudget,
+      monthlyBudget,
+      spentThisMonth,
+      remainingBudget: remainingMonthlyBudget,
+      latencyMs: Date.now() - startTime,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
   // 14. Structured Category-Specific Spending Limits
   const categoryRules = buyerPolicy.categoryRules || {};
   const catRule = categoryRules[product.category] || categoryRules[productCat];
@@ -427,27 +477,29 @@ export async function evaluatePolicy({
   }
 
   // 15. Duplicate Transaction In-Flight Guard (within 2 minutes per user/product)
-  const duplicateParams = [productId, requestedItemTotal];
-  let duplicateSql = `
-    SELECT id, created_at, status
-    FROM purchase_intents
-    WHERE product_id = $1
-      AND amount = $2
-      AND status NOT IN ('pending', 'evaluating', 'blocked', 'rejected', 'cancelled', 'completed')
-      AND created_at >= NOW() - INTERVAL '2 minutes'
-  `;
-  if (userId) {
-    duplicateParams.push(userId);
-    duplicateSql += ` AND user_id = $${duplicateParams.length}`;
-  }
+  let isDuplicate = false;
   if (intentId) {
+    const duplicateParams = [productId, requestedItemTotal];
+    let duplicateSql = `
+      SELECT id, created_at, status
+      FROM purchase_intents
+      WHERE product_id = $1
+        AND amount = $2
+        AND status NOT IN ('pending', 'evaluating', 'blocked', 'rejected', 'cancelled', 'completed')
+        AND created_at >= NOW() - INTERVAL '2 minutes'
+    `;
+    if (userId) {
+      duplicateParams.push(userId);
+      duplicateSql += ` AND user_id = $${duplicateParams.length}`;
+    }
     duplicateParams.push(intentId);
     duplicateSql += ` AND id != $${duplicateParams.length}`;
-  }
-  duplicateSql += ' LIMIT 1';
+    duplicateSql += ' LIMIT 1';
 
-  const duplicateRes = await query(duplicateSql, duplicateParams);
-  const isDuplicate = duplicateRes.rows.length > 0;
+    const duplicateRes = await query(duplicateSql, duplicateParams);
+    isDuplicate = duplicateRes.rows.length > 0;
+  }
+
   rulesEvaluated.push({
     rule: 'DUPLICATE_PREVENTION',
     passed: !isDuplicate,

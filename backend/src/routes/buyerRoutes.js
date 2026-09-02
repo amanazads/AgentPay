@@ -202,6 +202,10 @@ router.get('/invoices/:orderId', async (req, res, next) => {
     if (!invoice) {
       return res.status(404).json({ error: 'Invoice not found for this order' });
     }
+    const userId = getUserIdFromRequest(req);
+    if (invoice.user_id && invoice.user_id !== userId) {
+      return res.status(403).json({ error: 'Unauthorized to access this invoice' });
+    }
     res.json({ invoice });
   } catch (err) {
     next(err);

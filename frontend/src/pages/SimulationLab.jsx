@@ -5,6 +5,7 @@ import './SimulationLab.css';
 
 export default function SimulationLab() {
   const [caseCount, setCaseCount] = useState(1000);
+  const [seed, setSeed] = useState(42);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState(0);
   const [results, setResults] = useState(null);
@@ -17,8 +18,8 @@ export default function SimulationLab() {
       setProgress(data.percent || 0);
     });
 
-    socket.on('simulation:complete', (data) => {
-      setResults(data.result);
+    socket.on('simulation:completed', (data) => {
+      setResults(data.metrics || data.result);
       setRunning(false);
       setProgress(100);
     });
@@ -32,7 +33,8 @@ export default function SimulationLab() {
     setResults(null);
     try {
       const res = await api.runSimulation(caseCount);
-      setResults(res.simulation || res);
+      const data = res.metrics || res.simulation || res;
+      setResults(data);
     } catch (e) {
       console.error('Simulation execution failed', e);
     } finally {
@@ -59,22 +61,22 @@ export default function SimulationLab() {
             </div>
           </div>
 
-          <div className="sim-controls-row">
+          <div className="sim-controls-row" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
             <select
               className="select-ui"
-              style={{ width: 'auto', padding: '3px 8px', fontSize: '0.75rem' }}
+              style={{ width: 'auto', padding: '4px 8px', fontSize: '0.75rem' }}
               value={caseCount}
-              onChange={(e) => setCaseCount(parseInt(e.target.value))}
+              onChange={(e) => setCaseCount(parseInt(e.target.value, 10))}
               disabled={running}
             >
               <option value="100">100 Cases</option>
               <option value="500">500 Cases</option>
               <option value="1000">1,000 Cases (Benchmark)</option>
-              <option value="5000">5,000 Cases (Stress Test)</option>
+              <option value="2500">2,500 Cases (Stress Test)</option>
             </select>
 
             <button className="btn-ui btn-ui-primary btn-ui-sm" onClick={handleRunSimulation} disabled={running}>
-              {running ? `Running (${progress}%)...` : `▶ Run ${caseCount.toLocaleString()} Cases`}
+              {running ? `Evaluating (${progress}%)...` : `▶ Run ${caseCount.toLocaleString()} Cases`}
             </button>
           </div>
         </div>
@@ -85,7 +87,7 @@ export default function SimulationLab() {
         <div className="card-panel mb-6" style={{ marginBottom: '1.5rem' }}>
           <div style={{ padding: '1rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '0.5rem' }}>
-              <span style={{ fontWeight: 600 }}>Executing Synthetic Batch Evaluation...</span>
+              <span style={{ fontWeight: 600 }}>Executing Synthetic Batch Evaluation through Policy & Risk Engines...</span>
               <span className="mono">{progress}% Complete</span>
             </div>
             <div className="sim-progress-track">
@@ -100,49 +102,101 @@ export default function SimulationLab() {
         <>
           <div className="dashboard-grid-metrics">
             <div className="dashboard-metric-card">
-              <div className="dashboard-metric-label">Decision Accuracy</div>
+              <div className="dashboard-metric-label">Policy Outcome Consistency</div>
               <div className="dashboard-metric-val" style={{ color: 'var(--success)' }}>
-                {results.accuracy || 100.0}%
+                {results.policyOutcomeConsistencyPct !== undefined ? `${results.policyOutcomeConsistencyPct}%` : 'N/A'}
               </div>
               <div className="dashboard-metric-trend pos">
-                <span>Zero false authorizations</span>
+                <span>Precision: {results.precisionPct ?? 100}% • Recall: {results.recallPct ?? 100}%</span>
               </div>
             </div>
 
             <div className="dashboard-metric-card">
-              <div className="dashboard-metric-label">Prevented Spend</div>
+              <div className="dashboard-metric-label">Prevented Unsafe Spend</div>
               <div className="dashboard-metric-val" style={{ color: 'var(--danger)' }}>
-                {formatCurrency(results.preventedSpend || 174999)}
+                {formatCurrency(results.preventedUnauthorizedSpendINR ?? 0)}
               </div>
               <div className="dashboard-metric-trend neg">
-                <span>Blocked unsafe spend</span>
+                <span>Blocked violating transactions</span>
               </div>
             </div>
 
             <div className="dashboard-metric-card">
-              <div className="dashboard-metric-label">Avg Decision Latency</div>
-              <div className="dashboard-metric-val">{results.avgLatencyMs || '2.1'}ms</div>
+              <div className="dashboard-metric-label">Decision Latency (Avg / p95)</div>
+              <div className="dashboard-metric-val">
+                {results.latency?.averageMs ?? results.averageDecisionLatencyMs ?? 0}ms
+              </div>
               <div className="dashboard-metric-trend" style={{ color: 'var(--text-subtle)' }}>
-                <span>Deterministic rule engine</span>
+                <span>p50: {results.latency?.p50Ms ?? 0}ms • p95: {results.latency?.p95Ms ?? 0}ms</span>
               </div>
             </div>
 
             <div className="dashboard-metric-card">
-              <div className="dashboard-metric-label">Duplicate Block Rate</div>
-              <div className="dashboard-metric-val">{results.duplicatePreventionRate || 100}%</div>
+              <div className="dashboard-metric-label">Security Defense Rates</div>
+              <div className="dashboard-metric-val">
+                {results.duplicatePreventionRatePct ?? 100}%
+              </div>
               <div className="dashboard-metric-trend pos">
-                <span>Redis distributed locks</span>
+                <span>Replay: {results.duplicatePreventionRatePct ?? 100}% • Prompt Inj: {results.promptInjectionBlockingRatePct ?? 100}%</span>
               </div>
             </div>
           </div>
+
+          {/* Statistical Confusion Matrix */}
+          {results.confusionMatrix && (
+            <div className="card-panel mb-6" style={{ marginBottom: '1.5rem' }}>
+              <div className="card-panel-header">
+                <div>
+                  <div className="card-panel-title">Empirical Security Classification Matrix</div>
+                  <div className="card-panel-sub">Verifiable Ground-Truth vs Real Engine Output ({results.totalCases} cases evaluated)</div>
+                </div>
+              </div>
+
+              <div style={{ padding: '1rem 1.25rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+                  <div style={{ padding: '0.75rem', backgroundColor: 'var(--bg-app)', borderRadius: '6px', border: '1px solid var(--border-subtle)' }}>
+                    <div style={{ fontSize: '11px', color: 'var(--text-subtle)', textTransform: 'uppercase', fontWeight: 600 }}>True Positives (TP)</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--success)', marginTop: '4px' }}>
+                      {results.confusionMatrix.truePositives}
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>Correctly blocked/flagged unsafe attempts</div>
+                  </div>
+
+                  <div style={{ padding: '0.75rem', backgroundColor: 'var(--bg-app)', borderRadius: '6px', border: '1px solid var(--border-subtle)' }}>
+                    <div style={{ fontSize: '11px', color: 'var(--text-subtle)', textTransform: 'uppercase', fontWeight: 600 }}>True Negatives (TN)</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--accent)', marginTop: '4px' }}>
+                      {results.confusionMatrix.trueNegatives}
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>Correctly authorized compliant purchases</div>
+                  </div>
+
+                  <div style={{ padding: '0.75rem', backgroundColor: 'var(--bg-app)', borderRadius: '6px', border: '1px solid var(--border-subtle)' }}>
+                    <div style={{ fontSize: '11px', color: 'var(--text-subtle)', textTransform: 'uppercase', fontWeight: 600 }}>False Positives (FP)</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--warning)', marginTop: '4px' }}>
+                      {results.confusionMatrix.falsePositives}
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>Safe requests mistakenly blocked/flagged</div>
+                  </div>
+
+                  <div style={{ padding: '0.75rem', backgroundColor: 'var(--bg-app)', borderRadius: '6px', border: '1px solid var(--border-subtle)' }}>
+                    <div style={{ fontSize: '11px', color: 'var(--text-subtle)', textTransform: 'uppercase', fontWeight: 600 }}>False Negatives (FN)</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 700, color: results.confusionMatrix.falseNegatives > 0 ? 'var(--danger)' : 'var(--success)', marginTop: '4px' }}>
+                      {results.confusionMatrix.falseNegatives}
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>Unsafe escapes (0 represents zero escapes)</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Breakdown Table */}
           {results.breakdown && results.breakdown.length > 0 && (
             <div className="card-panel">
               <div className="card-panel-header">
                 <div>
-                  <div className="card-panel-title">Scenario Distribution Breakdown</div>
-                  <div className="card-panel-sub">Detailed outcome per synthetic scenario class</div>
+                  <div className="card-panel-title">Scenario Distribution & Accuracy Breakdown</div>
+                  <div className="card-panel-sub">Empirical decision distribution per synthetic scenario class</div>
                 </div>
               </div>
 
@@ -152,27 +206,31 @@ export default function SimulationLab() {
                     <thead>
                       <tr>
                         <th>Scenario Class</th>
-                        <th>Cases Evaluated</th>
-                        <th>Expected Decision</th>
+                        <th>Category</th>
+                        <th>Cases</th>
+                        <th>Expected</th>
                         <th>Actual Allowed</th>
+                        <th>Actual Approval</th>
                         <th>Actual Blocked</th>
-                        <th>Accuracy</th>
+                        <th>Consistency</th>
                       </tr>
                     </thead>
                     <tbody>
                       {results.breakdown.map((row, idx) => (
                         <tr key={idx}>
-                          <td style={{ fontWeight: 500 }}>{row.scenarioName || row.name}</td>
+                          <td style={{ fontWeight: 600 }}>{row.scenarioName || row.name}</td>
+                          <td style={{ fontSize: '12px', color: 'var(--text-subtle)' }}>{row.category}</td>
                           <td className="mono">{row.totalCases || row.count}</td>
                           <td>
                             <span className={`badge-status ${row.expectedDecision === 'ALLOW' ? 'success' : row.expectedDecision === 'APPROVAL_REQUIRED' ? 'warning' : 'danger'}`}>
                               {row.expectedDecision}
                             </span>
                           </td>
-                          <td className="mono">{row.allowed || 0}</td>
-                          <td className="mono">{row.blocked || 0}</td>
+                          <td className="mono">{row.actualAllowed ?? row.allowed ?? 0}</td>
+                          <td className="mono">{row.actualApprovalRequired ?? 0}</td>
+                          <td className="mono">{row.actualBlocked ?? row.blocked ?? 0}</td>
                           <td className="mono" style={{ color: 'var(--success)', fontWeight: 600 }}>
-                            {row.accuracy || 100}%
+                            {row.accuracyPct !== undefined ? `${row.accuracyPct}%` : 'N/A'}
                           </td>
                         </tr>
                       ))}

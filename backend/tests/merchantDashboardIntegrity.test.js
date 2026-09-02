@@ -64,9 +64,18 @@ describe('Track 01: Merchant Dashboard, Data Integrity & Revenue Attribution Sui
     buyerUser = bRes.rows[0];
     buyerToken = generateAccessToken(buyerUser);
 
-    // 4. Fetch an in-stock catalog product
-    const pRes = await query("SELECT * FROM products WHERE merchant_id = $1 AND in_stock = true LIMIT 1", [merchantId]);
-    testProduct = pRes.rows[0];
+    // 4. Fetch an in-stock catalog product within buyer mandate limit
+    let pRes = await query("SELECT * FROM products WHERE merchant_id = $1 AND in_stock = true AND price <= 10000 ORDER BY price ASC LIMIT 1", [merchantId]);
+    if (pRes.rows.length === 0) {
+      const insP = await query(`
+        INSERT INTO products (merchant_id, name, category, price, in_stock, inventory)
+        VALUES ($1, 'Dashboard Test Product', 'Electronics', 1499.00, true, 20)
+        RETURNING *
+      `, [merchantId]);
+      testProduct = insP.rows[0];
+    } else {
+      testProduct = pRes.rows[0];
+    }
   });
 
   // TEST 1: Valid AI purchase -> 1 intent, 1 transaction, 1 payment, 1 order, 1 revenue contribution

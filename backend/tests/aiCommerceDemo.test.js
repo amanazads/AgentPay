@@ -11,8 +11,7 @@ app.use(authenticateUser);
 app.use('/api/ai-commerce', aiCommerceDemoRoutes);
 
 describe('Track 01: AI Commerce Interactive Demonstration Suite', () => {
-  const secret = env.JWT_SECRET || process.env.JWT_SECRET || 'dev-secret-key-12345';
-  const adminToken = jwt.sign({ id: 'admin-test-user', role: 'ADMIN' }, secret, { expiresIn: '1h' });
+  const adminToken = jwt.sign({ id: 'admin-test-user', role: 'ADMIN' }, env.JWT_SECRET, { expiresIn: '1h' });
 
   test('GET /api/ai-commerce/demo-data returns unified verified catalog and dynamic readiness', async () => {
     const res = await request(app).get('/api/ai-commerce/demo-data');

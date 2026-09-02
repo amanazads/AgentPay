@@ -117,25 +117,30 @@ async function seed() {
     // Agents
     // ============================================
     console.log('[Seed] Creating agents...');
+    const adminUser = (await query("SELECT id FROM users WHERE email = 'admin@agentpay.demo'")).rows[0];
+    const managerUser = (await query("SELECT id FROM users WHERE email = 'manager@agentpay.demo'")).rows[0];
+    const adminId = adminUser?.id || USER_IDS.admin;
+    const managerId = managerUser?.id || USER_IDS.manager;
+
     const agents = [
       {
         id: AGENT_IDS.procurement,
         name: 'Procurement Agent',
-        owner_id: USER_IDS.admin,
+        owner_id: adminId,
         policy_id: POLICY_IDS.procurement,
         description: 'Handles IT equipment and office supply procurement with a ₹2L daily budget.',
       },
       {
         id: AGENT_IDS.marketing,
         name: 'Marketing Agent',
-        owner_id: USER_IDS.manager,
+        owner_id: managerId,
         policy_id: POLICY_IDS.marketing,
         description: 'Manages marketing tool and subscription purchases.',
       },
       {
         id: AGENT_IDS.executive,
         name: 'Executive Agent',
-        owner_id: USER_IDS.admin,
+        owner_id: adminId,
         policy_id: POLICY_IDS.executive,
         description: 'High-limit discretionary purchasing for executive leadership.',
       },
@@ -318,11 +323,11 @@ async function seed() {
 
     // Create some sample purchase intents
     const sampleIntents = [
-      { agent_id: AGENT_IDS.procurement, user_id: USER_IDS.admin, amount: 17999, status: 'completed', decision: 'ALLOW' },
-      { agent_id: AGENT_IDS.procurement, user_id: USER_IDS.admin, amount: 42000, status: 'approved', decision: 'APPROVAL_REQUIRED' },
-      { agent_id: AGENT_IDS.procurement, user_id: USER_IDS.admin, amount: 85000, status: 'blocked', decision: 'BLOCK' },
-      { agent_id: AGENT_IDS.marketing, user_id: USER_IDS.manager, amount: 11999, status: 'completed', decision: 'ALLOW' },
-      { agent_id: AGENT_IDS.procurement, user_id: USER_IDS.admin, amount: 8995, status: 'completed', decision: 'ALLOW' },
+      { agent_id: AGENT_IDS.procurement, user_id: adminId, amount: 17999, status: 'completed', decision: 'ALLOW' },
+      { agent_id: AGENT_IDS.procurement, user_id: adminId, amount: 42000, status: 'approved', decision: 'APPROVAL_REQUIRED' },
+      { agent_id: AGENT_IDS.procurement, user_id: adminId, amount: 85000, status: 'blocked', decision: 'BLOCK' },
+      { agent_id: AGENT_IDS.marketing, user_id: managerId, amount: 11999, status: 'completed', decision: 'ALLOW' },
+      { agent_id: AGENT_IDS.procurement, user_id: adminId, amount: 8995, status: 'completed', decision: 'ALLOW' },
     ];
 
     for (const intent of sampleIntents) {

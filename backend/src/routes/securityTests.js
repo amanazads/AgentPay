@@ -18,7 +18,11 @@ router.post(['/run', '/:scenarioId'], async (req, res, next) => {
 
     const io = req.app.get('io');
     const result = await executeSecurityScenario(scenario_id, io);
-    res.json(result);
+    res.json({
+      success: true,
+      scenario: result,
+      ...result,
+    });
   } catch (err) {
     next(err);
   }

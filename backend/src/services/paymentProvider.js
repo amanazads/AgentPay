@@ -42,28 +42,48 @@ export class PaymentProvider {
     if (!this.webhookSecret) {
       throw new Error(`Webhook secret not configured for ${this.environment} mode`);
     }
+    if (!signature || typeof signature !== 'string') {
+      return false;
+    }
     const expectedSignature = crypto
       .createHmac('sha256', this.webhookSecret)
       .update(typeof rawBody === 'string' ? rawBody : JSON.stringify(rawBody))
       .digest('hex');
 
-    return crypto.timingSafeEqual(Buffer.from(expectedSignature), Buffer.from(signature || ''));
+    const expectedBuf = Buffer.from(expectedSignature, 'utf8');
+    const sigBuf = Buffer.from(signature, 'utf8');
+    if (expectedBuf.length !== sigBuf.length) {
+      return false;
+    }
+
+    return crypto.timingSafeEqual(expectedBuf, sigBuf);
   }
 }
 
 /**
- * Razorpay Test Provider (Isolated Payment Rails)
+ * Razorpay Test Provider (Isolated Sandbox Payment Rails)
  */
 export class RazorpayTestProvider extends PaymentProvider {
-  constructor() {
+  constructor(customConfig = null) {
+    const keyId = customConfig?.keyId || env.RAZORPAY_TEST_KEY_ID;
+    const keySecret = customConfig?.keySecret || env.RAZORPAY_TEST_KEY_SECRET;
+    const webhookSecret = customConfig?.webhookSecret || env.RAZORPAY_TEST_WEBHOOK_SECRET;
+
     super({
       environment: 'TEST',
-      keyId: env.RAZORPAY_TEST_KEY_ID,
-      keySecret: env.RAZORPAY_TEST_KEY_SECRET,
-      webhookSecret: env.RAZORPAY_TEST_WEBHOOK_SECRET,
+      keyId,
+      keySecret,
+      webhookSecret,
     });
 
     this.client = null;
+
+    // Reject live keys in test provider to prevent accidental cross-rail execution
+    if (this.keyId && this.keyId.startsWith('rzp_live_')) {
+      logger.error('Payment', 'SECURITY ALERT: Live credentials passed to RazorpayTestProvider. Refusing to initialize live key in test provider.');
+      throw new Error('SECURITY VIOLATION: Live credentials (rzp_live_*) cannot be passed to RazorpayTestProvider.');
+    }
+
     if (this.keyId && this.keySecret && !this.keyId.startsWith('rzp_live_')) {
       try {
         this.client = new Razorpay({
@@ -76,7 +96,11 @@ export class RazorpayTestProvider extends PaymentProvider {
     }
   }
 
-  async createOrder({ amount, currency = 'INR', receipt, notes = {} }) {
+  async createOrder({ amount, currency = 'INR', receipt, notes = {}, environment = 'TEST' }) {
+    if (environment === 'LIVE' || notes?.environment === 'LIVE') {
+      throw new Error('SECURITY VIOLATION: Attempted to process a LIVE payment through Razorpay TEST provider. Execution halted.');
+    }
+
     const amountInPaise = Math.round(amount * 100);
 
     if (this.client) {
@@ -117,13 +141,20 @@ export class RazorpayTestProvider extends PaymentProvider {
       return { verified: true, environment: 'TEST' };
     }
 
+    if (!signature || typeof signature !== 'string') {
+      return { verified: false, environment: 'TEST', error: 'Missing or invalid signature' };
+    }
+
     const body = `${orderId}|${paymentId}`;
     const expectedSignature = crypto
       .createHmac('sha256', this.keySecret)
       .update(body)
       .digest('hex');
 
-    const isValid = signature === expectedSignature;
+    const expectedBuf = Buffer.from(expectedSignature, 'utf8');
+    const sigBuf = Buffer.from(signature, 'utf8');
+    const isValid = expectedBuf.length === sigBuf.length && crypto.timingSafeEqual(expectedBuf, sigBuf);
+
     return { verified: isValid, environment: 'TEST' };
   }
 
@@ -195,17 +226,21 @@ export class RazorpayTestProvider extends PaymentProvider {
  * Razorpay Live Production Provider (Governed Real-Money Rails)
  */
 export class RazorpayLiveProvider extends PaymentProvider {
-  constructor() {
+  constructor(customConfig = null) {
+    const keyId = customConfig?.keyId || env.RAZORPAY_LIVE_KEY_ID;
+    const keySecret = customConfig?.keySecret || env.RAZORPAY_LIVE_KEY_SECRET;
+    const webhookSecret = customConfig?.webhookSecret || env.RAZORPAY_LIVE_WEBHOOK_SECRET;
+
     super({
       environment: 'LIVE',
-      keyId: env.RAZORPAY_LIVE_KEY_ID,
-      keySecret: env.RAZORPAY_LIVE_KEY_SECRET,
-      webhookSecret: env.RAZORPAY_LIVE_WEBHOOK_SECRET,
+      keyId,
+      keySecret,
+      webhookSecret,
     });
 
-    if (!this.keyId || !this.keySecret || this.keyId.startsWith('rzp_test_')) {
+    if (!this.keyId || !this.keySecret || !this.keyId.startsWith('rzp_live_') || this.keyId.startsWith('rzp_test_')) {
       if (env.isLiveMode) {
-        logger.error('Payment', 'SECURITY ALERT: Razorpay LIVE credentials missing or invalid rzp_test key provided for LIVE mode.');
+        logger.error('Payment', 'SECURITY ALERT: Razorpay LIVE credentials missing or invalid key format provided for LIVE mode.');
       }
       this.client = null;
     } else {
@@ -217,13 +252,18 @@ export class RazorpayLiveProvider extends PaymentProvider {
   }
 
   assertLiveConfigured() {
-    if (!this.client) {
-      throw new Error('FATAL SECURITY LOCK: Razorpay LIVE mode is active but valid LIVE API credentials (RAZORPAY_LIVE_KEY_ID) are not configured. Fail closed.');
+    if (!this.client || !this.keyId || !this.keyId.startsWith('rzp_live_')) {
+      throw new Error('FATAL SECURITY LOCK: Razorpay LIVE mode is active but valid LIVE API credentials (starting with rzp_live_) are not configured. Fail closed.');
     }
   }
 
-  async createOrder({ amount, currency = 'INR', receipt, notes = {} }) {
+  async createOrder({ amount, currency = 'INR', receipt, notes = {}, environment = 'LIVE' }) {
     this.assertLiveConfigured();
+
+    if (environment === 'TEST' || notes?.environment === 'TEST') {
+      throw new Error('SECURITY VIOLATION: Attempted to process a TEST payment through Razorpay LIVE provider. Execution halted.');
+    }
+
     const amountInPaise = Math.round(amount * 100);
 
     const order = await this.client.orders.create({
@@ -256,7 +296,10 @@ export class RazorpayLiveProvider extends PaymentProvider {
       .update(body)
       .digest('hex');
 
-    const isValid = signature === expectedSignature;
+    const expectedBuf = Buffer.from(expectedSignature, 'utf8');
+    const sigBuf = Buffer.from(signature, 'utf8');
+    const isValid = expectedBuf.length === sigBuf.length && crypto.timingSafeEqual(expectedBuf, sigBuf);
+
     return { verified: isValid, environment: 'LIVE' };
   }
 

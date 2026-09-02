@@ -4,13 +4,35 @@ import env from '../config/env.js';
 import { logger } from '../utils/logger.js';
 import { recordAuditEvent } from './auditService.js';
 import { transitionPurchaseState, PurchaseStates } from './purchaseStateMachine.js';
-import { transitionOrderFulfillment } from './orderService.js';
-import { dispatchCommerceNotification } from './notificationDispatcher.js';
+import { createOrder } from './orderService.js';
+import { generateInvoiceForOrder } from './invoiceService.js';
+import { commitReservation, releaseReservation } from './inventoryService.js';
 
 /**
- * Durable Webhook Processing Service
- * Guarantees zero double-charging, idempotent handling, signature verification,
- * and persistent inbox storage.
+ * Webhook State Machine & Event Types
+ */
+export const WebhookEventTypes = {
+  PAYMENT_CAPTURED: 'payment.captured',
+  PAYMENT_FAILED: 'payment.failed',
+  ORDER_PAID: 'order.paid',
+  REFUND_PROCESSED: 'refund.processed',
+  DISPUTE_CREATED: 'payment.dispute.created',
+};
+
+export const WebhookProcessingStates = {
+  PENDING: 'PENDING',
+  PROCESSED: 'PROCESSED',
+  DUPLICATE_IGNORED: 'DUPLICATE_IGNORED',
+  CONFLICT_IGNORED: 'CONFLICT_IGNORED',
+  IGNORED: 'IGNORED',
+  REJECTED: 'REJECTED',
+  FAILED: 'FAILED',
+};
+
+/**
+ * Durable, Cryptographically Verified Webhook Processing Service
+ * Guarantees zero double-charging, exactly-once order creation, idempotent handling,
+ * and persistent inbox audit logging with strict TEST vs LIVE environment isolation.
  */
 export async function processRazorpayWebhook({
   environment = 'TEST', // 'TEST' | 'LIVE'
@@ -21,33 +43,54 @@ export async function processRazorpayWebhook({
 }) {
   const secret = environment === 'LIVE' ? env.RAZORPAY_LIVE_WEBHOOK_SECRET : env.RAZORPAY_TEST_WEBHOOK_SECRET;
 
-  // 1. Signature Verification
+  // 1. Strict HMAC Signature Verification
   let signatureVerified = false;
-  if (secret && signature) {
+
+  if (environment === 'LIVE') {
+    if (!secret || secret.trim() === '') {
+      logger.error('Webhook', 'FATAL SECURITY LOCK: Razorpay LIVE webhook secret not configured. Fail closed.');
+      throw new Error('FATAL SECURITY LOCK: Razorpay LIVE webhook secret not configured. Fail closed.');
+    }
+    if (!signature || typeof signature !== 'string') {
+      logger.error('Webhook', 'SECURITY ALERT: Missing cryptographic signature on LIVE webhook.');
+      throw new Error('Invalid webhook cryptographic signature: Missing signature');
+    }
+  }
+
+  if (secret && signature && typeof signature === 'string') {
     try {
       const expectedSignature = crypto
         .createHmac('sha256', secret)
         .update(typeof rawBody === 'string' ? rawBody : JSON.stringify(rawBody))
         .digest('hex');
 
-      signatureVerified = crypto.timingSafeEqual(
-        Buffer.from(expectedSignature),
-        Buffer.from(signature)
-      );
+      const expectedBuf = Buffer.from(expectedSignature, 'utf8');
+      const sigBuf = Buffer.from(signature, 'utf8');
+
+      if (expectedBuf.length === sigBuf.length) {
+        signatureVerified = crypto.timingSafeEqual(expectedBuf, sigBuf);
+      }
     } catch (e) {
       signatureVerified = false;
     }
   }
 
-  if (!signatureVerified && environment === 'LIVE') {
+  // If live, strictly reject invalid or missing signature
+  if (environment === 'LIVE' && !signatureVerified) {
     logger.error('Webhook', `SECURITY ALERT: Invalid Razorpay LIVE webhook signature rejected.`);
     throw new Error('Invalid webhook cryptographic signature');
+  }
+
+  // 2. Malformed Payload Validation
+  if (!payload || typeof payload !== 'object') {
+    logger.error('Webhook', 'Malformed webhook payload received.');
+    return { success: false, status: WebhookProcessingStates.REJECTED, error: 'Malformed webhook payload structure' };
   }
 
   const eventId = payload.event_id || payload.id || `evt_${crypto.randomBytes(8).toString('hex')}`;
   const eventType = payload.event || payload.event_type || 'unknown';
 
-  // 2. Durable Webhook Inbox Ingestion & Deduplication
+  // 3. Durable Webhook Inbox Ingestion & Idempotent Deduplication
   let inboxRecord;
   try {
     const inboxRes = await query(`
@@ -60,10 +103,17 @@ export async function processRazorpayWebhook({
     `, [eventId, environment, eventType, JSON.stringify(payload), signatureVerified]);
 
     if (inboxRes.rows.length === 0) {
-      // Event already recorded in inbox
-      const existing = await query('SELECT * FROM webhook_inbox WHERE event_id = $1', [eventId]);
+      // Event already recorded in inbox (Idempotent delivery)
       logger.info('Webhook', `Duplicate webhook event ${eventId} (${eventType}) detected — skipping redundant execution.`);
-      return { success: true, duplicate: true, status: 'DUPLICATE_IGNORED', eventId, processed: true };
+      return {
+        success: true,
+        duplicate: true,
+        status: WebhookProcessingStates.DUPLICATE_IGNORED,
+        eventId,
+        eventType,
+        environment,
+        processed: true,
+      };
     }
     inboxRecord = inboxRes.rows[0];
   } catch (err) {
@@ -71,8 +121,8 @@ export async function processRazorpayWebhook({
     throw err;
   }
 
-  // 3. Event Processing Router
-  let processingStatus = 'PROCESSED';
+  // 4. Server-Authoritative State Machine & Business Event Execution
+  let processingStatus = WebhookProcessingStates.PROCESSED;
   let errorMessage = null;
 
   try {
@@ -85,71 +135,189 @@ export async function processRazorpayWebhook({
     const rzpPaymentId = paymentEntity.id;
 
     switch (eventType) {
-      case 'payment.captured':
-      case 'order.paid': {
+      // ──────────────────────────────────────────────────────────────────────────
+      // Event: payment.captured / order.paid
+      // ──────────────────────────────────────────────────────────────────────────
+      case WebhookEventTypes.PAYMENT_CAPTURED:
+      case WebhookEventTypes.ORDER_PAID: {
+        if (!rzpOrderId) {
+          logger.warn('Webhook', `payment.captured event ${eventId} missing order_id.`);
+          processingStatus = WebhookProcessingStates.IGNORED;
+          break;
+        }
+
+        // Enforce exact environment matching
         const txRes = await query(`
-          SELECT t.*, pi.id as intent_id, pi.user_id, pi.agent_id, pi.merchant_id, pi.product_id
+          SELECT t.*, pi.id as intent_id, pi.user_id, pi.agent_id, pi.merchant_id, pi.product_id, pi.quantity, pi.quote_id
           FROM transactions t
           LEFT JOIN purchase_intents pi ON t.purchase_intent_id = pi.id
-          WHERE t.razorpay_order_id = $1 OR t.id::text = $1
-        `, [rzpOrderId]);
+          WHERE (t.razorpay_order_id = $1 OR t.id::text = $1)
+            AND (t.environment = $2 OR ($2 = 'TEST' AND (t.environment IS NULL OR t.environment = 'DEVELOPMENT')))
+        `, [rzpOrderId, environment]);
 
-        if (txRes.rows.length > 0) {
-          const tx = txRes.rows[0];
-          await query(`
-            UPDATE transactions
-            SET razorpay_payment_id = COALESCE(razorpay_payment_id, $2),
-                payment_verified = true,
-                status = 'completed',
-                updated_at = NOW()
-            WHERE id = $1
-          `, [tx.id, rzpPaymentId]);
+        if (txRes.rows.length === 0) {
+          // Check for cross-environment mismatch attempt
+          const crossTxRes = await query(`
+            SELECT id, environment FROM transactions WHERE razorpay_order_id = $1 OR id::text = $1
+          `, [rzpOrderId]);
 
-          await transitionPurchaseState(tx.intent_id, PurchaseStates.PAYMENT_SUCCESS, {
-            reason: `Webhook confirmed payment capture (${rzpPaymentId})`,
-            io,
-          });
+          if (crossTxRes.rows.length > 0) {
+            const mismatchedEnv = crossTxRes.rows[0].environment;
+            logger.error('Webhook', `SECURITY VIOLATION: Cross-environment webhook mismatch. Webhook is '${environment}', transaction is '${mismatchedEnv}'.`);
+            throw new Error(`SECURITY VIOLATION: Mixed environment webhook rejected. Webhook '${environment}' cannot update '${mismatchedEnv}' transaction.`);
+          }
 
-          await transitionPurchaseState(tx.intent_id, PurchaseStates.ORDER_CONFIRMED, {
-            reason: 'Order confirmed via durable payment webhook',
-            io,
-          });
+          logger.warn('Webhook', `Transaction not found for order ${rzpOrderId} in ${environment} mode.`);
+          processingStatus = WebhookProcessingStates.IGNORED;
+          break;
         }
-        break;
-      }
 
-      case 'payment.failed': {
-        const txRes = await query(`
-          SELECT t.*, pi.id as intent_id
-          FROM transactions t
-          LEFT JOIN purchase_intents pi ON t.purchase_intent_id = pi.id
-          WHERE t.razorpay_order_id = $1 OR t.razorpay_payment_id = $2
-        `, [rzpOrderId, rzpPaymentId]);
+        const tx = txRes.rows[0];
 
-        if (txRes.rows.length > 0) {
-          const tx = txRes.rows[0];
-          await query(`UPDATE transactions SET status = 'failed', updated_at = NOW() WHERE id = $1`, [tx.id]);
-          await transitionPurchaseState(tx.intent_id, PurchaseStates.PAYMENT_FAILED, {
-            reason: `Webhook reported payment failure (${paymentEntity.error_description || 'Declined'})`,
-            io,
-          });
+        // Payload Amount Verification (Paise to INR)
+        if (paymentEntity.amount) {
+          const webhookAmountINR = parseFloat(paymentEntity.amount) / 100;
+          const txAmount = parseFloat(tx.amount);
+          if (Math.abs(webhookAmountINR - txAmount) > 0.01) {
+            logger.error('Webhook', `SECURITY ALERT: Payment amount mismatch on webhook ${eventId}. Webhook: ₹${webhookAmountINR}, Tx: ₹${txAmount}`);
+            throw new Error(`SECURITY ALERT: Payment amount mismatch. Webhook ₹${webhookAmountINR} != Transaction ₹${txAmount}`);
+          }
         }
-        break;
-      }
 
-      case 'refund.processed': {
-        const refundPaymentId = refundEntity.payment_id;
-        const refundAmount = refundEntity.amount ? refundEntity.amount / 100 : 0;
+        // Payload Currency Verification
+        if (paymentEntity.currency && paymentEntity.currency.toUpperCase() !== (tx.currency || 'INR').toUpperCase()) {
+          logger.error('Webhook', `SECURITY ALERT: Payment currency mismatch on webhook ${eventId}. Webhook: ${paymentEntity.currency}, Tx: ${tx.currency || 'INR'}`);
+          throw new Error(`SECURITY ALERT: Payment currency mismatch. Webhook ${paymentEntity.currency} != Transaction ${tx.currency || 'INR'}`);
+        }
 
+        // Delayed / Idempotent Webhook Handling: If already completed, do not double-process
+        if (tx.status === 'completed' && tx.payment_verified) {
+          logger.info('Webhook', `Transaction ${tx.id} already completed. Treating delayed webhook ${eventId} as idempotent success.`);
+          processingStatus = WebhookProcessingStates.DUPLICATE_IGNORED;
+          break;
+        }
+
+        // Update transaction status
         await query(`
           UPDATE transactions
-          SET status = 'refunded', updated_at = NOW()
-          WHERE razorpay_payment_id = $1
-        `, [refundPaymentId]);
+          SET razorpay_payment_id = COALESCE(razorpay_payment_id, $2),
+              payment_verified = true,
+              status = 'completed',
+              updated_at = NOW()
+          WHERE id = $1
+        `, [tx.id, rzpPaymentId]);
+
+        // Commit inventory reservation
+        if (tx.quote_id) {
+          await commitReservation(tx.quote_id, {
+            orderNumber: `ORD-${tx.id.substring(0, 8).toUpperCase()}`,
+            buyerId: tx.user_id,
+            totalPrice: parseFloat(tx.amount),
+          }).catch((err) => {
+            logger.warn('Webhook', 'Inventory commit notice:', err.message);
+          });
+        }
+
+        // Server-Authoritative State Transitions
+        await transitionPurchaseState(tx.intent_id, PurchaseStates.PAYMENT_SUCCESS, {
+          actor: 'razorpay_webhook',
+          reason: `Webhook confirmed payment capture (${rzpPaymentId}) in ${environment} mode`,
+          metadata: { transactionId: tx.id, rzpPaymentId, rzpOrderId, environment },
+          io,
+        });
+
+        await transitionPurchaseState(tx.intent_id, PurchaseStates.ORDER_CONFIRMED, {
+          actor: 'razorpay_webhook',
+          reason: `Order confirmed via durable payment webhook (${environment})`,
+          metadata: { transactionId: tx.id, rzpPaymentId, rzpOrderId, environment },
+          io,
+        });
+
+        // Idempotent Order & Invoice Creation
+        const order = await createOrder({
+          purchaseIntentId: tx.intent_id,
+          transactionId: tx.id,
+          userId: tx.user_id,
+          merchantId: tx.merchant_id,
+          productId: tx.product_id,
+          quoteId: tx.quote_id,
+          quantity: tx.quantity || 1,
+          totalAmount: parseFloat(tx.amount),
+          paymentMethod: environment === 'LIVE' ? 'RAZORPAY_LIVE' : 'RAZORPAY_TEST',
+          paymentStatus: 'VERIFIED',
+          io,
+        });
+
+        if (order?.id) {
+          await generateInvoiceForOrder(order.id, {
+            paymentReference: rzpPaymentId,
+            io,
+          }).catch((err) => {
+            logger.warn('Webhook', 'Invoice generation notice:', err.message);
+          });
+        }
+
         break;
       }
 
-      case 'payment.dispute.created': {
+      // ──────────────────────────────────────────────────────────────────────────
+      // Event: payment.failed
+      // ──────────────────────────────────────────────────────────────────────────
+      case WebhookEventTypes.PAYMENT_FAILED: {
+        const txRes = await query(`
+          SELECT t.*, pi.id as intent_id, pi.quote_id
+          FROM transactions t
+          LEFT JOIN purchase_intents pi ON t.purchase_intent_id = pi.id
+          WHERE (t.razorpay_order_id = $1 OR t.razorpay_payment_id = $2)
+            AND (t.environment = $3 OR ($3 = 'TEST' AND (t.environment IS NULL OR t.environment = 'DEVELOPMENT')))
+        `, [rzpOrderId, rzpPaymentId, environment]);
+
+        if (txRes.rows.length > 0) {
+          const tx = txRes.rows[0];
+
+          // Out-of-Order Safety: Do not overwrite a previously completed payment
+          if (tx.status === 'completed' && tx.payment_verified) {
+            logger.warn('Webhook', `Out-of-order payment.failed event received for already completed transaction ${tx.id} — ignoring regression.`);
+            processingStatus = WebhookProcessingStates.CONFLICT_IGNORED;
+            break;
+          }
+
+          await query(`UPDATE transactions SET status = 'failed', updated_at = NOW() WHERE id = $1`, [tx.id]);
+
+          if (tx.quote_id) {
+            await releaseReservation(tx.quote_id, 'Payment failed webhook received').catch(() => {});
+          }
+
+          await transitionPurchaseState(tx.intent_id, PurchaseStates.PAYMENT_FAILED, {
+            actor: 'razorpay_webhook',
+            reason: `Webhook reported payment failure (${paymentEntity.error_description || 'Declined'})`,
+            metadata: { transactionId: tx.id, rzpPaymentId, error: paymentEntity.error_description },
+            io,
+          });
+        }
+        break;
+      }
+
+      // ──────────────────────────────────────────────────────────────────────────
+      // Event: refund.processed
+      // ──────────────────────────────────────────────────────────────────────────
+      case WebhookEventTypes.REFUND_PROCESSED: {
+        const refundPaymentId = refundEntity.payment_id;
+        if (refundPaymentId) {
+          await query(`
+            UPDATE transactions
+            SET status = 'refunded', updated_at = NOW()
+            WHERE razorpay_payment_id = $1
+              AND (environment = $2 OR ($2 = 'TEST' AND (environment IS NULL OR environment = 'DEVELOPMENT')))
+          `, [refundPaymentId, environment]);
+        }
+        break;
+      }
+
+      // ──────────────────────────────────────────────────────────────────────────
+      // Event: payment.dispute.created
+      // ──────────────────────────────────────────────────────────────────────────
+      case WebhookEventTypes.DISPUTE_CREATED: {
         const disputeId = disputeEntity.id || `disp_${crypto.randomBytes(6).toString('hex')}`;
         await query(`
           INSERT INTO payment_disputes (
@@ -168,12 +336,15 @@ export async function processRazorpayWebhook({
         break;
       }
 
+      // ──────────────────────────────────────────────────────────────────────────
+      // Unknown / Unhandled Events
+      // ──────────────────────────────────────────────────────────────────────────
       default:
-        logger.info('Webhook', `Unhandled webhook event type: ${eventType}`);
-        processingStatus = 'IGNORED';
+        logger.info('Webhook', `Unhandled webhook event type: ${eventType} — safely ignored without state change.`);
+        processingStatus = WebhookProcessingStates.IGNORED;
     }
 
-    // 4. Record Audit Event
+    // 5. Record Immutable Audit Event
     await recordAuditEvent({
       eventType: `WEBHOOK_${eventType.toUpperCase().replace(/\./g, '_')}`,
       actor: 'razorpay_webhook',
@@ -181,22 +352,32 @@ export async function processRazorpayWebhook({
       decision: 'ALLOW',
       reasoning: `Durable webhook event ${eventId} processed for environment ${environment}.`,
       outcome: processingStatus,
+      metadata: { environment, eventId, eventType, signatureVerified, processingStatus },
       io,
     });
   } catch (err) {
     logger.error('Webhook', `Error processing event ${eventId}:`, err.message);
-    processingStatus = 'FAILED';
+    processingStatus = WebhookProcessingStates.FAILED;
     errorMessage = err.message;
+    throw err;
+  } finally {
+    // 6. Update Webhook Inbox Record
+    if (inboxRecord?.id) {
+      await query(`
+        UPDATE webhook_inbox
+        SET processing_status = $2, error_message = $3, processed_at = NOW()
+        WHERE id = $1
+      `, [inboxRecord.id, processingStatus, errorMessage]);
+    }
   }
 
-  // 5. Update Webhook Inbox Record
-  await query(`
-    UPDATE webhook_inbox
-    SET processing_status = $2, error_message = $3, processed_at = NOW()
-    WHERE id = $1
-  `, [inboxRecord.id, processingStatus, errorMessage]);
-
-  return { success: processingStatus === 'PROCESSED', status: processingStatus, eventId, eventType, environment };
+  return {
+    success: processingStatus === WebhookProcessingStates.PROCESSED || processingStatus === WebhookProcessingStates.DUPLICATE_IGNORED || processingStatus === WebhookProcessingStates.IGNORED,
+    status: processingStatus,
+    eventId,
+    eventType,
+    environment,
+  };
 }
 
-export default { processRazorpayWebhook };
+export default { WebhookEventTypes, WebhookProcessingStates, processRazorpayWebhook };

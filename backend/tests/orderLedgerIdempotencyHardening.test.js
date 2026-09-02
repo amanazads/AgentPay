@@ -48,8 +48,18 @@ describe('Track 01: Critical Order Ledger, Inventory & Idempotency Hardening Sui
     buyerToken = generateAccessToken(buyerUser);
 
     // 3. Ensure test product
-    const pRes = await query("SELECT * FROM products WHERE merchant_id = $1 AND in_stock = true AND inventory > 0 LIMIT 1", [merchantId]);
-    inStockProduct = pRes.rows[0];
+    let pRes = await query("SELECT * FROM products WHERE merchant_id = $1 AND in_stock = true AND inventory > 0 LIMIT 1", [merchantId]);
+    if (pRes.rows.length === 0) {
+      const insP = await query(`
+        INSERT INTO products (merchant_id, sku, name, description, brand, category, price, currency, inventory, in_stock, specifications, status)
+        VALUES ($1, 'SKU-ORD-01', 'Logitech MX Master 3S Wireless Mouse', 'Mouse', 'Logitech', 'Electronics', 8995, 'INR', 10, true, '{"connectivity":"Bluetooth"}'::jsonb, 'ACTIVE')
+        RETURNING *
+      `, [merchantId]);
+      inStockProduct = insP.rows[0];
+    } else {
+      const updP = await query("UPDATE products SET name = 'Logitech MX Master 3S Wireless Mouse', brand = 'Logitech', category = 'Electronics', in_stock = true, inventory = 10, status = 'ACTIVE' WHERE id = $1 RETURNING *", [pRes.rows[0].id]);
+      inStockProduct = updP.rows[0];
+    }
   });
 
   // TEST 1: Exact product matching

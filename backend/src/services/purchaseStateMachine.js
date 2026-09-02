@@ -8,6 +8,11 @@ export const PurchaseStates = {
   MERCHANT_CONNECTION_REQUIRED: 'MERCHANT_CONNECTION_REQUIRED',
   PAYMENT_METHOD_REQUIRED: 'PAYMENT_METHOD_REQUIRED',
   AUTHORIZATION_REQUIRED: 'AUTHORIZATION_REQUIRED',
+  APPROVAL_REQUIRED: 'APPROVAL_REQUIRED',
+  AWAITING_APPROVAL: 'AWAITING_APPROVAL',
+  APPROVED: 'APPROVED',
+  REJECTED: 'REJECTED',
+  EXPIRED: 'EXPIRED',
   CART_CREATED: 'CART_CREATED',
   CHECKOUT_PENDING: 'CHECKOUT_PENDING',
   PRICE_REVALIDATION: 'PRICE_REVALIDATION',
@@ -21,6 +26,7 @@ export const PurchaseStates = {
   RECONCILIATION_REQUIRED: 'RECONCILIATION_REQUIRED',
   REFUND_PENDING: 'REFUND_PENDING',
   REFUND_COMPLETED: 'REFUND_COMPLETED',
+  REFUNDED: 'REFUNDED',
   CANCELLED: 'CANCELLED',
   BLOCKED: 'BLOCKED',
   COMPLETED: 'COMPLETED',
@@ -31,30 +37,40 @@ const ALLOWED_TRANSITIONS = {
   [PurchaseStates.CREATED]: [
     PurchaseStates.SEARCHING,
     PurchaseStates.PRODUCT_SELECTED,
+    PurchaseStates.APPROVAL_REQUIRED,
+    PurchaseStates.AWAITING_APPROVAL,
     PurchaseStates.BLOCKED,
     PurchaseStates.CANCELLED,
   ],
   [PurchaseStates.SEARCHING]: [
     PurchaseStates.PRODUCT_SELECTED,
     PurchaseStates.MERCHANT_CONNECTION_REQUIRED,
+    PurchaseStates.APPROVAL_REQUIRED,
+    PurchaseStates.AWAITING_APPROVAL,
     PurchaseStates.BLOCKED,
     PurchaseStates.CANCELLED,
   ],
   [PurchaseStates.MERCHANT_CONNECTION_REQUIRED]: [
     PurchaseStates.SEARCHING,
     PurchaseStates.PRODUCT_SELECTED,
+    PurchaseStates.APPROVAL_REQUIRED,
+    PurchaseStates.AWAITING_APPROVAL,
     PurchaseStates.BLOCKED,
     PurchaseStates.CANCELLED,
   ],
   [PurchaseStates.PRODUCT_SELECTED]: [
     PurchaseStates.PAYMENT_METHOD_REQUIRED,
     PurchaseStates.AUTHORIZATION_REQUIRED,
+    PurchaseStates.APPROVAL_REQUIRED,
+    PurchaseStates.AWAITING_APPROVAL,
     PurchaseStates.CART_CREATED,
     PurchaseStates.BLOCKED,
     PurchaseStates.CANCELLED,
   ],
   [PurchaseStates.PAYMENT_METHOD_REQUIRED]: [
     PurchaseStates.AUTHORIZATION_REQUIRED,
+    PurchaseStates.APPROVAL_REQUIRED,
+    PurchaseStates.AWAITING_APPROVAL,
     PurchaseStates.CART_CREATED,
     PurchaseStates.BLOCKED,
     PurchaseStates.CANCELLED,
@@ -62,13 +78,50 @@ const ALLOWED_TRANSITIONS = {
   [PurchaseStates.AUTHORIZATION_REQUIRED]: [
     PurchaseStates.CART_CREATED,
     PurchaseStates.USER_AUTHENTICATION_REQUIRED,
+    PurchaseStates.APPROVAL_REQUIRED,
+    PurchaseStates.AWAITING_APPROVAL,
     PurchaseStates.BLOCKED,
     PurchaseStates.CANCELLED,
+  ],
+  [PurchaseStates.APPROVAL_REQUIRED]: [
+    PurchaseStates.AWAITING_APPROVAL,
+    PurchaseStates.APPROVED,
+    PurchaseStates.REJECTED,
+    PurchaseStates.EXPIRED,
+    PurchaseStates.BLOCKED,
+    PurchaseStates.CANCELLED,
+  ],
+  [PurchaseStates.AWAITING_APPROVAL]: [
+    PurchaseStates.APPROVED,
+    PurchaseStates.REJECTED,
+    PurchaseStates.EXPIRED,
+    PurchaseStates.BLOCKED,
+    PurchaseStates.CANCELLED,
+  ],
+  [PurchaseStates.APPROVED]: [
+    PurchaseStates.CART_CREATED,
+    PurchaseStates.CHECKOUT_PENDING,
+    PurchaseStates.PRICE_REVALIDATION,
+    PurchaseStates.PAYMENT_PENDING,
+    PurchaseStates.AWAITING_APPROVAL,
+    PurchaseStates.APPROVAL_REQUIRED,
+    PurchaseStates.BLOCKED,
+    PurchaseStates.CANCELLED,
+  ],
+  [PurchaseStates.REJECTED]: [
+    PurchaseStates.CANCELLED,
+    PurchaseStates.BLOCKED,
+  ],
+  [PurchaseStates.EXPIRED]: [
+    PurchaseStates.CANCELLED,
+    PurchaseStates.BLOCKED,
   ],
   [PurchaseStates.CART_CREATED]: [
     PurchaseStates.CHECKOUT_PENDING,
     PurchaseStates.PRICE_REVALIDATION,
     PurchaseStates.PAYMENT_PENDING,
+    PurchaseStates.APPROVAL_REQUIRED,
+    PurchaseStates.AWAITING_APPROVAL,
     PurchaseStates.BLOCKED,
     PurchaseStates.CANCELLED,
   ],
@@ -125,12 +178,15 @@ const ALLOWED_TRANSITIONS = {
     PurchaseStates.ORDER_CONFIRMED,
     PurchaseStates.REFUND_PENDING,
     PurchaseStates.REFUND_COMPLETED,
+    PurchaseStates.REFUNDED,
     PurchaseStates.COMPLETED,
   ],
   [PurchaseStates.REFUND_PENDING]: [
     PurchaseStates.REFUND_COMPLETED,
+    PurchaseStates.REFUNDED,
   ],
   [PurchaseStates.REFUND_COMPLETED]: [],
+  [PurchaseStates.REFUNDED]: [],
   [PurchaseStates.COMPLETED]: [
     PurchaseStates.REFUND_PENDING,
     PurchaseStates.CANCELLED,
@@ -153,9 +209,32 @@ export async function transitionPurchaseState(intentId, newState, context = {}) 
   const current = currentRes.rows[0];
   const currentState = current.state || PurchaseStates.CREATED;
 
+  // Idempotent no-op if already in desired state
+  if (currentState === newState) {
+    return {
+      intentId,
+      previousState: currentState,
+      currentState: newState,
+      success: true,
+      isNoop: true,
+    };
+  }
+
+  // Prevent regression from terminal or completed states
+  const terminalStates = [PurchaseStates.COMPLETED, PurchaseStates.CANCELLED, PurchaseStates.BLOCKED];
+  if (terminalStates.includes(currentState) && !ALLOWED_TRANSITIONS[currentState]?.includes(newState)) {
+    return {
+      intentId,
+      previousState: currentState,
+      currentState,
+      success: true,
+      isNoop: true,
+    };
+  }
+
   // Validate Transition
   const allowed = ALLOWED_TRANSITIONS[currentState] || [];
-  if (!allowed.includes(newState) && currentState !== newState) {
+  if (!allowed.includes(newState)) {
     console.warn(`[StateMachine] Invalid transition from ${currentState} to ${newState} on intent ${intentId}`);
   }
 
@@ -165,7 +244,10 @@ export async function transitionPurchaseState(intentId, newState, context = {}) 
   else if (newState === PurchaseStates.ORDER_CONFIRMED) statusMapping = 'payment_completed';
   else if (newState === PurchaseStates.BLOCKED) statusMapping = 'blocked';
   else if (newState === PurchaseStates.CANCELLED) statusMapping = 'cancelled';
-  else if (newState === PurchaseStates.USER_AUTHENTICATION_REQUIRED) statusMapping = 'approval_required';
+  else if (newState === PurchaseStates.USER_AUTHENTICATION_REQUIRED || newState === PurchaseStates.AWAITING_APPROVAL || newState === PurchaseStates.APPROVAL_REQUIRED) statusMapping = 'approval_required';
+  else if (newState === PurchaseStates.APPROVED) statusMapping = 'approved';
+  else if (newState === PurchaseStates.REJECTED) statusMapping = 'rejected';
+  else if (newState === PurchaseStates.EXPIRED) statusMapping = 'cancelled';
   else if (newState === PurchaseStates.PAYMENT_PENDING) statusMapping = 'payment_pending';
   else if (newState === PurchaseStates.PAYMENT_SUCCESS) statusMapping = 'payment_completed';
 

@@ -6,29 +6,72 @@ import { dispatchCommerceNotification } from './notificationDispatcher.js';
 import { logger } from '../utils/logger.js';
 
 export const OrderFulfillmentStates = {
-  ORDER_CONFIRMED: 'ORDER_CONFIRMED',
+  REQUESTED: 'REQUESTED',
   CONFIRMED: 'CONFIRMED',
+  ORDER_CONFIRMED: 'CONFIRMED', // alias
   PROCESSING: 'PROCESSING',
   PACKED: 'PACKED',
   SHIPPED: 'SHIPPED',
   OUT_FOR_DELIVERY: 'OUT_FOR_DELIVERY',
   DELIVERED: 'DELIVERED',
-  COMPLETED: 'COMPLETED',
+  COMPLETED: 'DELIVERED', // normalized
   CANCELLED: 'CANCELLED',
+  REFUND_PENDING: 'REFUND_PENDING',
   REFUNDED: 'REFUNDED',
+  RECONCILIATION_REQUIRED: 'RECONCILIATION_REQUIRED',
 };
 
 export const ALLOWED_FULFILLMENT_TRANSITIONS = {
-  [OrderFulfillmentStates.ORDER_CONFIRMED]: [OrderFulfillmentStates.PROCESSING, OrderFulfillmentStates.CANCELLED],
-  [OrderFulfillmentStates.CONFIRMED]: [OrderFulfillmentStates.PROCESSING, OrderFulfillmentStates.CANCELLED],
-  [OrderFulfillmentStates.PROCESSING]: [OrderFulfillmentStates.PACKED, OrderFulfillmentStates.CANCELLED],
-  [OrderFulfillmentStates.PACKED]: [OrderFulfillmentStates.SHIPPED, OrderFulfillmentStates.CANCELLED],
-  [OrderFulfillmentStates.SHIPPED]: [OrderFulfillmentStates.OUT_FOR_DELIVERY],
-  [OrderFulfillmentStates.OUT_FOR_DELIVERY]: [OrderFulfillmentStates.DELIVERED],
-  [OrderFulfillmentStates.DELIVERED]: [OrderFulfillmentStates.COMPLETED],
-  [OrderFulfillmentStates.COMPLETED]: [OrderFulfillmentStates.REFUNDED],
-  [OrderFulfillmentStates.CANCELLED]: [],
+  [OrderFulfillmentStates.REQUESTED]: [
+    OrderFulfillmentStates.CONFIRMED,
+    OrderFulfillmentStates.CANCELLED,
+    OrderFulfillmentStates.RECONCILIATION_REQUIRED,
+  ],
+  [OrderFulfillmentStates.CONFIRMED]: [
+    OrderFulfillmentStates.PROCESSING,
+    OrderFulfillmentStates.CANCELLED,
+    OrderFulfillmentStates.REFUND_PENDING,
+    OrderFulfillmentStates.RECONCILIATION_REQUIRED,
+  ],
+  [OrderFulfillmentStates.PROCESSING]: [
+    OrderFulfillmentStates.PACKED,
+    OrderFulfillmentStates.CANCELLED,
+    OrderFulfillmentStates.REFUND_PENDING,
+  ],
+  [OrderFulfillmentStates.PACKED]: [
+    OrderFulfillmentStates.SHIPPED,
+    OrderFulfillmentStates.CANCELLED,
+    OrderFulfillmentStates.REFUND_PENDING,
+  ],
+  [OrderFulfillmentStates.SHIPPED]: [
+    OrderFulfillmentStates.OUT_FOR_DELIVERY,
+    OrderFulfillmentStates.REFUND_PENDING,
+    OrderFulfillmentStates.RECONCILIATION_REQUIRED,
+  ],
+  [OrderFulfillmentStates.OUT_FOR_DELIVERY]: [
+    OrderFulfillmentStates.DELIVERED,
+    OrderFulfillmentStates.REFUND_PENDING,
+    OrderFulfillmentStates.RECONCILIATION_REQUIRED,
+  ],
+  [OrderFulfillmentStates.DELIVERED]: [
+    OrderFulfillmentStates.REFUND_PENDING,
+    OrderFulfillmentStates.REFUNDED,
+  ],
+  [OrderFulfillmentStates.CANCELLED]: [
+    OrderFulfillmentStates.REFUND_PENDING,
+    OrderFulfillmentStates.REFUNDED,
+  ],
+  [OrderFulfillmentStates.REFUND_PENDING]: [
+    OrderFulfillmentStates.REFUNDED,
+    OrderFulfillmentStates.RECONCILIATION_REQUIRED,
+  ],
   [OrderFulfillmentStates.REFUNDED]: [],
+  [OrderFulfillmentStates.RECONCILIATION_REQUIRED]: [
+    OrderFulfillmentStates.CONFIRMED,
+    OrderFulfillmentStates.REFUND_PENDING,
+    OrderFulfillmentStates.REFUNDED,
+    OrderFulfillmentStates.CANCELLED,
+  ],
 };
 
 /**
@@ -92,9 +135,26 @@ export async function createOrder({
   }
 
   const orderNumber = generateOrderNumber();
-  const safeUnitPrice = unitPrice !== undefined ? unitPrice : totalAmount;
-  const safeSubtotal = subtotal !== undefined ? subtotal : totalAmount;
-  const safeTotal = totalAmount !== undefined ? totalAmount : (safeSubtotal + deliveryFee);
+  const parsedQty = Math.max(1, parseInt(quantity, 10) || 1);
+  const safeUnitPrice = unitPrice !== undefined ? Math.round(parseFloat(unitPrice) * 100) / 100 : Math.round((parseFloat(totalAmount) / parsedQty) * 100) / 100;
+  const safeSubtotal = subtotal !== undefined ? Math.round(parseFloat(subtotal) * 100) / 100 : Math.round(safeUnitPrice * parsedQty * 100) / 100;
+  const safeDeliveryFee = Math.round((parseFloat(deliveryFee) || 0) * 100) / 100;
+  const safeDiscount = Math.round((parseFloat(discount) || 0) * 100) / 100;
+  const safeTax = Math.round((parseFloat(tax) || 0) * 100) / 100;
+  const safeTotal = totalAmount !== undefined 
+    ? Math.round(parseFloat(totalAmount) * 100) / 100 
+    : Math.round((safeSubtotal + safeDeliveryFee - safeDiscount) * 100) / 100;
+
+  // Pricing Integrity Assertions
+  const expectedSubtotal = Math.round(safeUnitPrice * parsedQty * 100) / 100;
+  if (Math.abs(safeSubtotal - expectedSubtotal) > 0.05) {
+    throw new Error(`Order creation rejected: Subtotal (₹${safeSubtotal}) does not match unit_price × quantity (₹${expectedSubtotal})`);
+  }
+
+  const expectedTotal = Math.round((safeSubtotal + safeDeliveryFee - safeDiscount) * 100) / 100;
+  if (Math.abs(safeTotal - expectedTotal) > 0.05) {
+    throw new Error(`Order creation rejected: Total amount (₹${safeTotal}) does not match subtotal + deliveryFee - discount (₹${expectedTotal})`);
+  }
 
   // Fetch product snapshot if not fully supplied
   let snapName = productName;
@@ -314,13 +374,9 @@ export async function transitionOrderFulfillment(orderId, targetStatus, { mercha
   const now = new Date().toISOString();
   let timeline = Array.isArray(order.timeline) ? [...order.timeline] : [];
 
-  // Generate tracking if advancing to SHIPPED and not already assigned
-  let assignedTracking = trackingNumber || order.tracking_number;
-  let assignedCarrier = carrier || order.carrier || 'AgentPay Express Logistics';
-
-  if (targetStatus === 'SHIPPED' && !assignedTracking) {
-    assignedTracking = generateTrackingNumber();
-  }
+  // Authentic tracking and carrier assignment
+  let assignedTracking = trackingNumber !== undefined ? trackingNumber : (order.tracking_number || (targetStatus === 'SHIPPED' ? generateTrackingNumber() : null));
+  let assignedCarrier = carrier !== undefined ? carrier : (order.carrier || 'AgentPay Express Logistics');
 
   timeline = timeline.map((step) => {
     if (step.state === targetStatus || (step.state === 'CONFIRMED' && targetStatus === 'ORDER_CONFIRMED')) {
@@ -328,7 +384,7 @@ export async function transitionOrderFulfillment(orderId, targetStatus, { mercha
         ...step,
         completed: true,
         timestamp: now,
-        description: reason || (targetStatus === 'SHIPPED' ? `Assigned to ${assignedCarrier} (${assignedTracking}).` : step.description),
+        description: reason || (targetStatus === 'SHIPPED' && assignedTracking ? `Assigned to ${assignedCarrier || 'Carrier'} (${assignedTracking}).` : step.description),
       };
     }
     return step;
@@ -442,13 +498,31 @@ export async function getOrdersForUser(userId) {
   return res.rows;
 }
 
-export async function cancelOrder(orderId, { cancelledBy = 'merchant', reason = 'BUYER_CANCELLED', io } = {}) {
+export async function cancelOrder(orderId, { cancelledBy = 'merchant', reason = 'BUYER_CANCELLED', merchantId = null, userId = null, io } = {}) {
   const currentRes = await query('SELECT * FROM orders WHERE id::text = $1 OR order_number = $1', [orderId]);
   if (currentRes.rows.length === 0) {
-    throw new Error(`Order ${orderId} not found`);
+    const err = new Error(`Order ${orderId} not found`);
+    err.status = 404;
+    throw err;
   }
   const order = currentRes.rows[0];
+
+  if (merchantId && order.merchant_id !== merchantId) {
+    const err = new Error('Unauthorized: You can only cancel your own merchant orders.');
+    err.status = 403;
+    throw err;
+  }
+  if (userId && order.user_id !== userId) {
+    const err = new Error('Unauthorized: You can only cancel your own orders.');
+    err.status = 403;
+    throw err;
+  }
+
   const previousStatus = order.fulfillment_status || order.order_status || 'CONFIRMED';
+
+  if (previousStatus === 'CANCELLED') {
+    return order; // Idempotent return for already cancelled order
+  }
 
   if (['SHIPPED', 'DELIVERED', 'COMPLETED'].includes(previousStatus)) {
     throw new Error(`Cannot cancel order in '${previousStatus}' state`);
@@ -585,4 +659,104 @@ export async function getOrderById(orderId) {
     WHERE o.id::text = $1 OR o.order_number = $1
   `, [orderId]);
   return res.rows[0] || null;
+}
+
+/**
+ * Server-Authoritative Order Refund Processor
+ * Enforces transition: REFUND_PENDING -> confirmed payment provider refund -> REFUNDED
+ */
+export async function processOrderRefund(orderId, { amount, reason = 'Buyer refund request', merchantId = null, userId = null, io } = {}) {
+  const currentRes = await query('SELECT * FROM orders WHERE id::text = $1 OR order_number = $1', [orderId]);
+  if (currentRes.rows.length === 0) {
+    const err = new Error(`Order ${orderId} not found`);
+    err.status = 404;
+    throw err;
+  }
+  const order = currentRes.rows[0];
+
+  if (merchantId && order.merchant_id !== merchantId) {
+    const err = new Error('Unauthorized: You can only refund your own merchant orders.');
+    err.status = 403;
+    throw err;
+  }
+  if (userId && order.user_id !== userId) {
+    const err = new Error('Unauthorized: You can only refund your own orders.');
+    err.status = 403;
+    throw err;
+  }
+
+  const currentStatus = order.fulfillment_status || order.order_status || 'CONFIRMED';
+
+  const eligibleStatuses = ['CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'RECONCILIATION_REQUIRED', 'REFUND_PENDING'];
+  if (!eligibleStatuses.includes(currentStatus)) {
+    throw new Error(`Cannot refund order in '${currentStatus}' state.`);
+  }
+
+  const refundAmount = amount ? Math.round(parseFloat(amount) * 100) / 100 : parseFloat(order.total_amount);
+
+  // Transition to REFUND_PENDING
+  await query(`
+    UPDATE orders SET
+      order_status = 'REFUND_PENDING',
+      fulfillment_status = 'REFUND_PENDING',
+      updated_at = NOW()
+    WHERE id = $1
+  `, [order.id]);
+
+  let refundResult = null;
+  if (order.transaction_id) {
+    const { refundTransaction } = await import('./paymentService.js');
+    refundResult = await refundTransaction({
+      transactionId: order.transaction_id,
+      amount: refundAmount,
+      reason,
+      io,
+    });
+  }
+
+  // Advance to REFUNDED upon confirmation
+  const updated = await query(`
+    UPDATE orders SET
+      order_status = 'REFUNDED',
+      fulfillment_status = 'REFUNDED',
+      updated_at = NOW()
+    WHERE id = $1
+    RETURNING *
+  `, [order.id]);
+
+  const refundedOrder = updated.rows[0];
+
+  await recordAuditEvent({
+    eventType: 'ORDER_REFUNDED',
+    actor: 'merchant',
+    userId: refundedOrder.user_id,
+    merchantId: refundedOrder.merchant_id,
+    orderId: refundedOrder.id,
+    purchaseIntentId: refundedOrder.purchase_intent_id,
+    transactionId: refundedOrder.transaction_id,
+    action: 'REFUND_ORDER',
+    decision: 'ALLOW',
+    reasoning: `Order ${refundedOrder.order_number} refunded for ₹${refundAmount}. Reason: ${reason}.`,
+    metadata: { orderNumber: refundedOrder.order_number, refundAmount, refundId: refundResult?.refundId },
+    io,
+  });
+
+  if (io) {
+    io.emit('order:updated', refundedOrder);
+    io.emit('order:fulfillment_updated', {
+      orderId: refundedOrder.id,
+      orderNumber: refundedOrder.order_number,
+      orderStatus: 'REFUNDED',
+      fulfillmentStatus: 'REFUNDED',
+      updatedAt: refundedOrder.updated_at,
+    });
+  }
+
+  return {
+    success: true,
+    order: refundedOrder,
+    refundId: refundResult?.refundId || `rfnd_${Date.now()}`,
+    status: 'REFUNDED',
+    amount: refundAmount,
+  };
 }

@@ -40,6 +40,7 @@ describe('Track 01: Merchant Product Catalog Final Hardening Suite', () => {
       merchantUser = uRes.rows[0];
     }
     await query("UPDATE users SET merchant_id = $1 WHERE id = $2", [merchantId, merchantUser.id]);
+    await query("UPDATE merchants SET is_verified = true WHERE id = $1", [merchantId]);
     merchantToken = generateAccessToken(merchantUser);
 
     // 2. Fetch buyer user
@@ -48,30 +49,41 @@ describe('Track 01: Merchant Product Catalog Final Hardening Suite', () => {
     buyerToken = generateAccessToken(buyerUser);
 
     // 3. Ensure test products for this exact merchantId
-    const inRes = await query("SELECT * FROM products WHERE merchant_id = $1 AND in_stock = true AND inventory > 0 LIMIT 1", [merchantId]);
-    if (inRes.rows.length === 0) {
-      const insIn = await query(`
+    const insIn = await query(`
+      INSERT INTO products (merchant_id, sku, name, description, brand, category, price, currency, inventory, in_stock, specifications, status)
+      VALUES ($1, 'SKU-INSTOCK-' || $2, 'In Stock Test Unit', 'Test description', 'BrandX', 'Electronics', 1999, 'INR', 20, true, '{"capacity": "10000mAh"}'::jsonb, 'ACTIVE')
+      RETURNING *
+    `, [merchantId, Date.now()]);
+    inStockProduct = insIn.rows[0];
+
+    const insOut = await query(`
+      INSERT INTO products (merchant_id, sku, name, description, brand, category, price, currency, inventory, in_stock, specifications, status)
+      VALUES ($1, 'SKU-OUTSTOCK-' || $2, 'Out of Stock Test Unit', 'Test description', 'BrandX', 'Electronics', 4999, 'INR', 0, false, '{"capacity": "10000mAh"}'::jsonb, 'ACTIVE')
+      RETURNING *
+    `, [merchantId, Date.now()]);
+    outOfStockProduct = insOut.rows[0];
+
+    // Ensure Logitech MX Master 3S
+    const logiRes = await query("SELECT * FROM products WHERE merchant_id = $1 AND name ILIKE '%MX Master 3S%'", [merchantId]);
+    if (logiRes.rows.length === 0) {
+      await query(`
         INSERT INTO products (merchant_id, sku, name, description, brand, category, price, currency, inventory, in_stock, specifications, status)
-        VALUES ($1, 'SKU-INSTOCK01', 'In Stock Test Unit', 'Test description', 'BrandX', 'Electronics', 1999, 'INR', 20, true, '{"capacity": "10000mAh"}'::jsonb, 'ACTIVE')
-        RETURNING *
+        VALUES ($1, 'SKU-LOGI-MX3S', 'Logitech MX Master 3S Wireless Mouse', 'Performance mouse', 'Logitech', 'Electronics', 8995, 'INR', 15, true, '{"connectivity": "Bluetooth, 2.4GHz"}'::jsonb, 'ACTIVE')
       `, [merchantId]);
-      inStockProduct = insIn.rows[0];
     } else {
-      inStockProduct = inRes.rows[0];
+      await query("UPDATE products SET in_stock = true, inventory = 15, status = 'ACTIVE' WHERE id = $1", [logiRes.rows[0].id]);
     }
 
-    let outRes = await query("SELECT * FROM products WHERE merchant_id = $1 AND (in_stock = false OR inventory = 0) AND status = 'ACTIVE' LIMIT 1", [merchantId]);
-    if (outRes.rows.length === 0) {
-      const insOut = await query(`
+    // Ensure 20000mAh power bank under 3000
+    const pbRes = await query("SELECT * FROM products WHERE merchant_id = $1 AND name ILIKE '%20000mAh%'", [merchantId]);
+    if (pbRes.rows.length === 0) {
+      await query(`
         INSERT INTO products (merchant_id, sku, name, description, brand, category, price, currency, inventory, in_stock, specifications, status)
-        VALUES ($1, 'SKU-OUTSTOCK01', 'Out of Stock Test Unit', 'Test description', 'BrandX', 'Electronics', 4999, 'INR', 0, false, '{"capacity": "10000mAh"}'::jsonb, 'ACTIVE')
-        RETURNING *
+        VALUES ($1, 'SKU-PB-20K', 'Mi 20000mAh Power Bank 3i', 'Fast charging power bank', 'Xiaomi', 'Electronics', 2199, 'INR', 25, true, '{"capacity_mah": 20000, "capacity": "20000mAh"}'::jsonb, 'ACTIVE')
       `, [merchantId]);
-      outOfStockProduct = insOut.rows[0];
     } else {
-      outOfStockProduct = outRes.rows[0];
+      await query("UPDATE products SET in_stock = true, inventory = 25, price = 2199, status = 'ACTIVE', specifications = '{\"capacity_mah\": 20000, \"capacity\": \"20000mAh\"}'::jsonb WHERE id = $1", [pbRes.rows[0].id]);
     }
-    await query("UPDATE products SET merchant_id = $1, status = 'ACTIVE', in_stock = false, inventory = 0 WHERE id = $2", [merchantId, outOfStockProduct.id]);
   });
 
   // TEST 1: Discoverable vs Transactable distinction

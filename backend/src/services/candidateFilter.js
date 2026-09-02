@@ -75,7 +75,47 @@ export async function findEligibleProducts(intent, { merchantId = null, userId =
   for (const prod of allProducts) {
     const failedRules = [];
     const matchedRules = [];
-    const totalPrice = prod.price + prod.delivery_fee;
+    // RULE 0: Content Safety & Prompt Injection Check
+    const originalText = `${prod.name || ''} ${prod.description || ''}`;
+    const textToCheck = originalText.toLowerCase();
+    const promptInjectionRegexes = [
+      /(?:ignore|disregard|forget|override|cancel|bypass)\s+(?:all\s+)?(?:(?:previous|prior|existing|above|system|developer|policy|spending)\s+)?(?:the\s+)?(?:rules|instructions|prompts|commands|constraints|limits|policies|policy)/i,
+      /(?:new\s+instructions?|system\s+override|priority\s+override|jailbreak|developer\s+mode)/i,
+      /\[(?:SYSTEM|DEVELOPER|ADMIN|ROOT)\]/i,
+      /<\|im_start\|>system/i,
+      /<<SYS>>|<SYS>/i,
+      /-{2,}\s*BEGIN\s+(?:SYSTEM|ADMIN)\s+(?:MESSAGE|INSTRUCTION)\s*-{2,}/i,
+      /###\s*System:/i,
+      /(?:admin\s+(?:command|mode|privilege|override)|sudo\s+(?:approve|authorize|execute|buy|grant)|grant\s+(?:admin|root|permission|authorization)|root\s+(?:access|privilege))/i,
+      /(?:set_approval\s*=\s*(?:auto|true|allow|bypass)|auto_approve\s*=\s*true)/i,
+      /bypass\s+(?:spending|budget|purchasing)\s*(?:limits?|polic(?:y|ies)|rules?)?/i,
+      /override\s+(?:spending|budget|limits?)/i,
+      /(?:set\s+limit\s*(?:to|=)\s*(?:unlimited|\d{7,})|no\s+spending\s+limit)/i,
+      /max_budget\s*=\s*(?:unlimited|[\d,]{7,})/i,
+      /(?:set|increase|override)\s+quantity\s*(?:to|=)\s*\d+/i,
+      /(?:buy|order)\s+\d{3,}\s+units/i,
+    ];
+
+    let hasInjection = promptInjectionRegexes.some((rx) => rx.test(textToCheck));
+    if (!hasInjection) {
+      const b64Matches = originalText.match(/[A-Za-z0-9+/]{16,}={0,2}/g) || [];
+      for (const cand of b64Matches) {
+        try {
+          const decoded = Buffer.from(cand, 'base64').toString('utf8');
+          if (promptInjectionRegexes.some((rx) => rx.test(decoded))) {
+            hasInjection = true;
+            break;
+          }
+        } catch (e) {}
+      }
+    }
+
+    if (hasInjection) {
+      failedRules.push({
+        rule: 'SECURITY_THREAT_DETECTED',
+        reason: 'Adversarial prompt injection pattern detected in untrusted product catalog content.',
+      });
+    }
 
     // RULE 1: Buyer Permitted Category (Hard Policy Boundary)
     if (buyerAllowedCategories && buyerAllowedCategories.length > 0) {

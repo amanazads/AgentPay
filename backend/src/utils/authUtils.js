@@ -107,7 +107,7 @@ export async function validateAndRotateRefreshToken(token) {
 }
 
 /**
- * Robust User ID extraction across JWT, Cookie, Header, or Legacy format
+ * Robust User ID extraction strictly from verified JWT payload or session
  */
 export function getUserIdFromRequest(req) {
   if (req?.user?.id) return req.user.id;
@@ -115,10 +115,6 @@ export function getUserIdFromRequest(req) {
   const authHeader = req?.headers?.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.substring(7);
-    if (token.startsWith('agentpay_jwt_')) {
-      const parts = token.replace('agentpay_jwt_', '').split('_');
-      return parts[1] || parts[0];
-    }
     const decoded = verifyAccessToken(token);
     if (decoded?.id) return decoded.id;
   }
@@ -128,5 +124,5 @@ export function getUserIdFromRequest(req) {
     if (decoded?.id) return decoded.id;
   }
 
-  return req?.query?.user_id || req?.headers?.['x-user-id'] || null;
+  return null;
 }

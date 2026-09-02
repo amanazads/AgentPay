@@ -5,6 +5,7 @@ import { Server as SocketIO } from 'socket.io';
 import env from './config/env.js';
 import { testConnection } from './config/database.js';
 import { testRedisConnection } from './config/redis.js';
+import { validateEnvironment } from './config/env.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { killSwitchMiddleware } from './middleware/killSwitch.js';
 import { logger } from './utils/logger.js';
@@ -28,8 +29,9 @@ import notificationRoutes from './routes/notifications.js';
 import connectionRoutes from './routes/connections.js';
 import merchantPortalRoutes from './routes/merchantPortal.js';
 import buyerRoutes from './routes/buyerRoutes.js';
-import aiCommerceDemoRoutes from './routes/aiCommerceDemo.js';
+import simulationCommerceRoutes from './routes/simulationCommerce.js';
 import webhookRoutes from './routes/webhooks.js';
+import judgeRoutes from './routes/judge.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -107,8 +109,11 @@ app.use('/api/simulations', simulationRoutes);
 app.use('/api/security-tests', securityTestRoutes);
 app.use('/api/system', systemRoutes);
 app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/ai-commerce', aiCommerceDemoRoutes);
+app.use('/api/simulation/commerce', simulationCommerceRoutes);
+app.use('/api/demo/commerce', simulationCommerceRoutes);
+app.use('/api/ai-commerce', simulationCommerceRoutes);
 app.use('/api/webhooks', webhookRoutes);
+app.use('/api/judge', judgeRoutes);
 
 // ============================================
 // Error handling
@@ -145,6 +150,19 @@ io.on('connection', (socket) => {
 async function start() {
   logger.info('Server', 'Starting AgentPay backend...');
 
+  // Validate environment configuration
+  const validation = validateEnvironment(env);
+  if (!validation.valid) {
+    if (env.isProduction) {
+      logger.error('Server', `FATAL: Environment validation failed:\n- ${validation.errors.join('\n- ')}`);
+      throw new Error(`Production environment startup validation failed:\n- ${validation.errors.join('\n- ')}`);
+    } else {
+      logger.warn('Server', `Environment configuration notices:\n- ${validation.errors.join('\n- ')}`);
+    }
+  } else {
+    logger.info('Server', 'Configuration validation passed: required parameters present.');
+  }
+
   // Test database connection
   const dbConnected = await testConnection();
   if (!dbConnected) {
@@ -177,3 +195,4 @@ if (process.env.NODE_ENV !== 'test' && !process.env.JEST_WORKER_ID) {
 }
 
 export { app, io };
+export default app;

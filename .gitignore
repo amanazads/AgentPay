@@ -1,19 +1,50 @@
+# Dependencies
 node_modules/
 **/node_modules/
+
+# Production Builds
 dist/
 **/dist/
 build/
 **/build/
+dist-ssr/
+**/dist-ssr/
+
+# Environment Variables & Secrets
 .env
+.env.*
 .env.local
 .env.*.local
+!.env.example
+!**/.env.example
+*.pem
+*.key
+*.cert
+secrets/
+
+# Logs
 *.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS & Editor metadata
 .DS_Store
 **/.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.sw?
+
+# Python
 __pycache__/
 *.pyc
 .venv/
 venv/
 .pytest_cache/
+
+# Coverage & IDE artifacts
 coverage/
 .system_generated/

@@ -33,12 +33,17 @@ async function request(endpoint, options = {}) {
 }
 
 export const api = {
-  // Authentication
+  // ============================================================================
+  // CANONICAL PRODUCTION COMMERCE API
+  // ============================================================================
+
+  // Authentication & Profile
   login: (credentials) => request('/api/auth/login', { method: 'POST', body: credentials }),
   signup: (userData) => request('/api/auth/signup', { method: 'POST', body: userData }),
   loginWithGoogle: (data = {}) => request('/api/auth/google', { method: 'POST', body: data }),
   logout: () => request('/api/auth/logout', { method: 'POST' }),
   getMe: () => request('/api/auth/me'),
+  switchProfile: (activeProfile) => request('/api/auth/switch-profile', { method: 'POST', body: { activeProfile } }),
 
   // Purchasing Preferences & Procurement Policy Engine
   getPreferences: () => request('/api/preferences'),
@@ -47,10 +52,22 @@ export const api = {
   interpretPreferences: (sentence) => request('/api/preferences/interpret', { method: 'POST', body: { sentence } }),
   evaluatePolicyPreview: (data) => request('/api/preferences/evaluate', { method: 'POST', body: data }),
 
-  // AI Conversational Procurement
+  // AI Conversational Procurement & Natural-Language Intent
   sendChatMessage: (data) => request('/api/ai/chat', { method: 'POST', body: data }),
 
-  // Approvals
+  // Canonical Product Discovery & Catalog
+  getProducts: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/api/products?${qs}`);
+  },
+  getProductById: (id) => request(`/api/products/${id}`),
+  searchBuyerProducts: (params = {}) => request('/api/buyer/search', { method: 'POST', body: params }),
+
+  // Canonical Quotes & Cryptographic Price Locks
+  getQuote: (data) => request('/api/ai/quote', { method: 'POST', body: data }),
+  createCheckout: (data) => request('/api/ai/checkout', { method: 'POST', body: data }),
+
+  // Approvals Workflow
   getApprovals: (status = 'pending') => request(`/api/approvals?status=${status}`),
   decideApproval: (id, decision, notes) =>
     request(`/api/approvals/${id}/decide`, {
@@ -58,7 +75,7 @@ export const api = {
       body: { decision, notes, auto_create_payment: decision === 'APPROVE' },
     }),
 
-  // Purchase Intents & Settlements
+  // Purchase Intents, Transactions & Payment Verification
   getPurchases: () => request('/api/buyer/purchases'),
   getPurchaseIntents: (params = {}) => {
     const qs = new URLSearchParams(params).toString();
@@ -72,12 +89,6 @@ export const api = {
   confirmTestPayment: (orderId, paymentData) =>
     request(`/api/payments/${orderId}/verify`, { method: 'POST', body: paymentData }),
 
-  // Catalog Products
-  getProducts: (params = {}) => {
-    const qs = new URLSearchParams(params).toString();
-    return request(`/api/products?${qs}`);
-  },
-
   // Merchant Connections & Capability Matrix
   getConnectedMerchants: () => request('/api/connections/merchants'),
   getMerchantHealth: (id) => request(`/api/connections/merchants/${id}/health`),
@@ -89,8 +100,12 @@ export const api = {
   addPaymentMethod: (data) => request('/api/connections/payment-methods', { method: 'POST', body: data }),
   revokePaymentMethod: (id) => request(`/api/connections/payment-methods/${id}/revoke`, { method: 'POST' }),
 
-  // Profile Switching
-  switchProfile: (activeProfile) => request('/api/auth/switch-profile', { method: 'POST', body: { activeProfile } }),
+  // Addresses, Orders & Invoicing
+  getAddresses: () => request('/api/buyer/addresses'),
+  addAddress: (data) => request('/api/buyer/addresses', { method: 'POST', body: data }),
+  getBuyerOrders: () => request('/api/buyer/orders'),
+  getBuyerOrderDetail: (id) => request(`/api/buyer/orders/${id}`),
+  getInvoice: (orderId) => request(`/api/buyer/invoices/${orderId}`),
 
   // Merchant Portal Suite
   getMerchantOverview: () => request('/api/merchant/overview'),
@@ -114,61 +129,82 @@ export const api = {
   rotateMerchantWebhookSecret: () => request('/api/merchant/store/rotate-webhook-secret', { method: 'POST' }),
   runMerchantHealthCheck: () => request('/api/merchant/store/health-check', { method: 'POST' }),
   testMerchantWebhook: () => request('/api/merchant/store/test-webhook', { method: 'POST' }),
+  fulfillMerchantOrder: (id, data) => request(`/api/merchant/orders/${id}/fulfill`, { method: 'POST', body: data }),
+  cancelMerchantOrder: (id, data) => request(`/api/merchant/orders/${id}/cancel`, { method: 'POST', body: data }),
 
-  // Security & Simulation & Audit for Technical Judges
+  // System Status & Audit
+  getSystemStatus: () => request('/api/system/status'),
   getEnvironment: () => request('/api/system/environment'),
   getAuditEvents: (params = {}) => {
     const qs = new URLSearchParams(params).toString();
     return request(`/api/audit?${qs}`);
   },
-  runSimulation: (cases = 1000) =>
-    request('/api/simulations/run', { method: 'POST', body: { cases } }),
-  runSecurityScenario: (scenarioId) =>
-    request(`/api/security-tests/${scenarioId}`, { method: 'POST' }),
+
+  // ============================================================================
+  // ISOLATED DEMO & SIMULATION LAB API
+  // ============================================================================
+
+  // 1,000-Case Simulation & Security Attack Labs
+  runSimulation: (cases = 1000) => request('/api/simulations/run', { method: 'POST', body: { cases } }),
+  runSecurityScenario: (scenarioId) => request(`/api/security-tests/${scenarioId}`, { method: 'POST' }),
   resetDemo: () => request('/api/system/reset-demo', { method: 'POST' }),
-  
-  // AI Commerce Capabilities & Diagnostics Engine
-  getAICommerceReadinessData: () => request('/api/ai-commerce/catalog-readiness'),
-  getDemoCommerceData: () => request('/api/ai-commerce/catalog-readiness'),
+
+  // Isolated Commerce Simulation Suite
+  simulation: {
+    getReadinessData: () => request('/api/simulation/commerce/catalog-readiness'),
+    executePurchaseFlow: (params = {}) =>
+      request('/api/simulation/commerce/evaluate-purchase-flow', {
+        method: 'POST',
+        body: typeof params === 'string' ? { prompt: params } : params,
+      }),
+    testSurgeProtection: (params = {}) =>
+      request('/api/simulation/commerce/test-surge-protection', {
+        method: 'POST',
+        body: typeof params === 'string' ? { productId: params } : params,
+      }),
+    testSignatureVerification: (params = {}) =>
+      request('/api/simulation/commerce/test-signature-verification', { method: 'POST', body: params }),
+    testLedgerReconciliation: (params = {}) =>
+      request('/api/simulation/commerce/reconcile-ledger', { method: 'POST', body: params }),
+    resetState: () => request('/api/simulation/commerce/reset-state', { method: 'POST' }),
+  },
+
+  // Simulation Lab Aliases (for backward compatibility with demo widgets)
+  getAICommerceReadinessData: () => request('/api/simulation/commerce/catalog-readiness'),
+  getDemoCommerceData: () => request('/api/simulation/commerce/catalog-readiness'),
   executeAutonomousCommercePreview: (params = {}) =>
-    request('/api/ai-commerce/evaluate-purchase-flow', {
+    request('/api/simulation/commerce/evaluate-purchase-flow', {
       method: 'POST',
       body: typeof params === 'string' ? { prompt: params } : params,
     }),
   executeAICommerceDemo: (params = {}) =>
-    request('/api/ai-commerce/evaluate-purchase-flow', {
+    request('/api/simulation/commerce/evaluate-purchase-flow', {
       method: 'POST',
       body: typeof params === 'string' ? { prompt: params } : params,
     }),
   testPriceSurgeProtection: (params = {}) =>
-    request('/api/ai-commerce/test-surge-protection', {
+    request('/api/simulation/commerce/test-surge-protection', {
       method: 'POST',
       body: typeof params === 'string' ? { productId: params } : params,
     }),
   simulatePriceChangeFailure: (params = {}) =>
-    request('/api/ai-commerce/test-surge-protection', {
+    request('/api/simulation/commerce/test-surge-protection', {
       method: 'POST',
       body: typeof params === 'string' ? { productId: params } : params,
     }),
   testSignatureVerification: (params = {}) =>
-    request('/api/ai-commerce/test-signature-verification', { method: 'POST', body: params }),
+    request('/api/simulation/commerce/test-signature-verification', { method: 'POST', body: params }),
   simulatePaymentFailure: (params = {}) =>
-    request('/api/ai-commerce/test-signature-verification', { method: 'POST', body: params }),
+    request('/api/simulation/commerce/test-signature-verification', { method: 'POST', body: params }),
   testLedgerReconciliation: (params = {}) =>
-    request('/api/ai-commerce/reconcile-ledger', { method: 'POST', body: params }),
+    request('/api/simulation/commerce/reconcile-ledger', { method: 'POST', body: params }),
   simulateReconciliation: (params = {}) =>
-    request('/api/ai-commerce/reconcile-ledger', { method: 'POST', body: params }),
-  resetAICommerceState: () => request('/api/ai-commerce/reset-state', { method: 'POST' }),
-  resetAICommerceDemo: () => request('/api/ai-commerce/reset-state', { method: 'POST' }),
+    request('/api/simulation/commerce/reconcile-ledger', { method: 'POST', body: params }),
+  resetAICommerceState: () => request('/api/simulation/commerce/reset-state', { method: 'POST' }),
+  resetAICommerceDemo: () => request('/api/simulation/commerce/reset-state', { method: 'POST' }),
 
-  // Addresses & Invoicing
-  getAddresses: () => request('/api/buyer/addresses'),
-  addAddress: (data) => request('/api/buyer/addresses', { method: 'POST', body: data }),
-  getBuyerOrders: () => request('/api/buyer/orders'),
-  getBuyerOrderDetail: (id) => request(`/api/buyer/orders/${id}`),
-  getInvoice: (orderId) => request(`/api/buyer/invoices/${orderId}`),
-  fulfillMerchantOrder: (id, data) => request(`/api/merchant/orders/${id}/fulfill`, { method: 'POST', body: data }),
-  cancelMerchantOrder: (id, data) => request(`/api/merchant/orders/${id}/cancel`, { method: 'POST', body: data }),
+  // Judge Mode Deterministic Sequence Engine
+  getJudgeSequence: () => request('/api/judge/sequence'),
+  runJudgeStep: (step, context = {}) => request('/api/judge/run-step', { method: 'POST', body: { step, context } }),
+  resetJudgeSession: () => request('/api/judge/reset', { method: 'POST' }),
 };
-
-

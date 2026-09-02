@@ -6,10 +6,9 @@ async function clearAllTestData() {
   await query('DELETE FROM approvals');
   await query('DELETE FROM transactions');
   await query('DELETE FROM purchase_intents');
-  await query('DELETE FROM audit_events');
   await query('DELETE FROM merchant_analytics');
 
-  console.log('All test transaction, approval, and audit records cleared.');
+  console.log('All test transaction and approval records cleared. Audit trail preserved.');
 }
 
 clearAllTestData()

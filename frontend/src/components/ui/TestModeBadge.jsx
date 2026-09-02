@@ -44,7 +44,7 @@ export default function TestModeBadge({ compact = false }) {
     >
       <Icons.Shield size={13} />
       <span>
-        <strong>DEMO ENVIRONMENT:</strong> Autonomous transactions run via Razorpay test rails. No real money or bank settlement occurs.
+        <strong>TEST RAIL ENVIRONMENT:</strong> Autonomous transactions run via Razorpay test rails. No real money or bank settlement occurs.
       </span>
     </div>
   );

@@ -6,11 +6,12 @@ import { parseNaturalLanguagePreference } from '../services/preferenceParser.js'
 import { evaluatePolicy } from '../services/policyEngine.js';
 import { parseBuyerIntent } from '../services/intentParser.js';
 import { findEligibleProducts } from '../services/candidateFilter.js';
+import { requireAuth, requireBuyer } from '../middleware/authMiddleware.js';
 
 const router = Router();
 
-// GET /api/preferences — Get authoritative preferences and spend accounting for current user
-router.get('/', async (req, res, next) => {
+// GET /api/preferences — Get authoritative preferences and spend accounting for current user (Protected)
+router.get('/', requireAuth, async (req, res, next) => {
   try {
     const userId = getUserIdFromRequest(req);
     const spendingSummary = await getSpendingSummary(userId);
@@ -47,7 +48,7 @@ router.get('/', async (req, res, next) => {
 });
 
 // POST /api/preferences — Save preferences, validate boundaries, increment version, and record audit history
-router.post('/', async (req, res, next) => {
+router.post('/', requireAuth, async (req, res, next) => {
   try {
     const userId = getUserIdFromRequest(req);
     const {
@@ -224,16 +225,11 @@ router.post('/interpret', async (req, res, next) => {
 });
 
 // POST /api/preferences/evaluate — Policy Preview & "Test My Rules" Simulation Endpoint
-router.post('/evaluate', async (req, res, next) => {
+router.post('/evaluate', requireAuth, requireBuyer, async (req, res, next) => {
   try {
-    let userId = req.body.userId || req.headers['x-user-id'] || null;
+    const userId = getUserIdFromRequest(req);
     if (!userId) {
-      try {
-        userId = getUserIdFromRequest(req);
-      } catch (e) {
-        const uRes = await query("SELECT id FROM users WHERE role = 'user' LIMIT 1");
-        userId = uRes.rows[0]?.id;
-      }
+      return res.status(401).json({ error: 'Authentication required' });
     }
 
     const {

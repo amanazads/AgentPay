@@ -16,8 +16,7 @@ export class PaymentMethodService {
    */
   async getUserPaymentMethods(userId) {
     if (!userId) {
-      const defaultUser = await query("SELECT id FROM users WHERE role = 'BUYER' OR role = 'user' LIMIT 1");
-      userId = defaultUser.rows[0]?.id;
+      throw new Error('User ID is required for payment methods retrieval');
     }
 
     const res = await query(`
@@ -74,8 +73,7 @@ export class PaymentMethodService {
    */
   async addPaymentMethod(userId, data = {}) {
     if (!userId) {
-      const defaultUser = await query("SELECT id FROM users WHERE role = 'BUYER' OR role = 'user' LIMIT 1");
-      userId = defaultUser.rows[0]?.id;
+      throw new Error('User ID is required for payment authorization');
     }
 
     const {
@@ -145,8 +143,7 @@ export class PaymentMethodService {
    */
   async revokePaymentMethod(userId, methodId, reason = 'Revoked by buyer') {
     if (!userId) {
-      const defaultUser = await query("SELECT id FROM users WHERE role = 'BUYER' OR role = 'user' LIMIT 1");
-      userId = defaultUser.rows[0]?.id;
+      throw new Error('User ID is required for payment authorization revocation');
     }
 
     const res = await query(`

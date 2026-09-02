@@ -1,12 +1,44 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { Icons } from '../ui/Icons';
+import { api } from '../../services/api';
 import './Header.css';
 
 export default function Header({ pendingCount = 0 }) {
   const { isAdmin, activeProfile, switchProfile } = useAuth();
   const navigate = useNavigate();
+
+  // ── System status polling ────────────────────────────────────────────────────
+  // Possible values: 'checking' | 'operational' | 'degraded' | 'unavailable'
+  const [systemStatus, setSystemStatus] = useState('checking');
+
+  const fetchSystemStatus = useCallback(async () => {
+    try {
+      const data = await api.getSystemStatus();
+      setSystemStatus(data.status || 'unavailable');
+    } catch {
+      // A fetch failure (network down, server unreachable) means unavailable —
+      // never fall back to a demo assumption.
+      setSystemStatus('unavailable');
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSystemStatus();
+    const interval = setInterval(fetchSystemStatus, 30_000);
+    return () => clearInterval(interval);
+  }, [fetchSystemStatus]);
+
+  // ── Status display config ───────────────────────────────────────────────────
+  const STATUS_CONFIG = {
+    checking:     { color: '#94a3b8', label: 'Checking…' },
+    operational:  { color: '#22c55e', label: 'Operational' },
+    degraded:     { color: '#f59e0b', label: 'Degraded' },
+    unavailable:  { color: '#ef4444', label: 'Unavailable' },
+  };
+  const { color: statusColor, label: statusLabel } =
+    STATUS_CONFIG[systemStatus] ?? STATUS_CONFIG.unavailable;
 
   const handleSwitchProfile = (profile) => {
     switchProfile(profile);
@@ -86,14 +118,49 @@ export default function Header({ pendingCount = 0 }) {
 
             {isAdmin && (
               <NavLink to="/admin" className={({ isActive }) => `nav-tab-link ${isActive ? 'active' : ''}`}>
-                <Icons.Shield size={15} />
-                <span>Admin Console</span>
+                <Icons.Settings size={15} />
+                <span>Console</span>
               </NavLink>
             )}
           </nav>
         </div>
 
         <div className="nav-right-tools">
+          {/* Live System Status Indicator */}
+          <div
+            id="system-status-indicator"
+            title={`System: ${systemStatus}`}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '5px',
+              padding: '3px 9px',
+              borderRadius: '9999px',
+              border: '1px solid #e2e8f0',
+              backgroundColor: '#f8fafc',
+              fontSize: '0.71875rem',
+              fontWeight: 600,
+              color: '#475569',
+              letterSpacing: '0.01em',
+              cursor: 'default',
+              userSelect: 'none',
+            }}
+          >
+            <span
+              style={{
+                width: '7px',
+                height: '7px',
+                borderRadius: '50%',
+                backgroundColor: statusColor,
+                flexShrink: 0,
+                boxShadow: systemStatus === 'operational'
+                  ? `0 0 0 2px ${statusColor}33`
+                  : undefined,
+              }}
+            />
+            {statusLabel}
+          </div>
+
           {/* Top Profile Switcher Capsule */}
           <div className="profile-switcher-pill">
             <button

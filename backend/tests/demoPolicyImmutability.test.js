@@ -1,9 +1,12 @@
+import { jest } from '@jest/globals';
 import request from 'supertest';
 import { app } from '../src/index.js';
 import { query } from '../src/config/database.js';
 import { evaluatePolicy } from '../src/services/policyEngine.js';
 import { resetDemoData } from '../src/services/demoResetService.js';
 import { generateAccessToken } from '../src/utils/authUtils.js';
+
+jest.setTimeout(30000);
 
 describe('AgentPay Invariant: Policy Immutability during Demo & Catalog Initialization', () => {
   let buyerUser;

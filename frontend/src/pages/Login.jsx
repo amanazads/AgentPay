@@ -209,7 +209,7 @@ export default function Login({ defaultMode = 'login' }) {
               <Icons.ChevronRight size={14} style={{ transform: 'rotate(180deg)' }} /> Back to Home
             </button>
             <span className="auth-env-badge">
-              <span className="auth-env-dot" /> Sandbox Test Mode
+              <span className="auth-env-dot" /> Test Rails Active
             </span>
           </div>
 
@@ -238,15 +238,19 @@ export default function Login({ defaultMode = 'login' }) {
           </div>
 
           {/* Header Title & Subtext */}
-          <div className="auth-title-section">
-            <h2 className="auth-title-text">
+          <div className="auth-form-header">
+            <h2 className="auth-form-title">
               {mode === 'signup'
-                ? (isMerchant ? 'Create Merchant Account' : 'Create Buyer Account')
-                : (isMerchant ? 'Sign In to Merchant Hub' : 'Sign In to Buyer Portal')}
+                ? isMerchant
+                  ? 'Create Merchant Account'
+                  : 'Create Buyer Account'
+                : isMerchant
+                ? 'Merchant Sign In'
+                : 'Buyer Sign In'}
             </h2>
-            <p className="auth-sub-text">
+            <p className="auth-form-sub">
               {isMerchant
-                ? 'Make your catalog AI-readable and transactable for autonomous AI buyers.'
+                ? 'Manage catalog readiness, monitor autonomous AI orders, and inspect settlement.'
                 : 'Configure spending limits and delegate procurement to your AI purchasing agent.'}
             </p>
           </div>
@@ -259,7 +263,7 @@ export default function Login({ defaultMode = 'login' }) {
             </div>
           )}
 
-          {/* Google OAuth (Simulated Sandbox Auth) */}
+          {/* Google OAuth */}
           <button
             type="button"
             className="auth-btn-google"

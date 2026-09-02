@@ -55,7 +55,7 @@ describe('Track 01: Merchant Growth & Conversion Analytics Hardening Suite', () 
     // 3. Buyer User
     const bRes = await query("SELECT * FROM users WHERE role = 'BUYER' OR role = 'user' LIMIT 1");
     testBuyerUser = bRes.rows[0];
-  });
+  }, 30000);
 
   // TEST 1: GET /api/merchant/analytics returns canonical summary, funnel, and outcomes
   it('TEST 1: Analytics API returns canonical metrics calculated from orders ledger', async () => {

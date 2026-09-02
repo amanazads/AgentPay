@@ -209,7 +209,7 @@ export default function AIBuyer() {
                             setReviewModalData({
                               isOpen: true,
                               intent: m.purchaseIntent || {
-                                id: 'pi_demo',
+                                id: m.intentId || m.purchaseIntentId || `pi_${Date.now()}`,
                                 product_name: m.recommendation.name,
                                 amount: m.recommendation.price,
                                 merchant_name: m.recommendation.merchant_name,
