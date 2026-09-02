@@ -25,9 +25,26 @@ describe('Track 01: Strict Financial Idempotency & Concurrency Safety Suite', ()
   let buyerToken;
 
   beforeAll(async () => {
-    const uRes = await query("SELECT id, email, name, role FROM users WHERE role = 'BUYER' LIMIT 1");
-    buyerUserId = uRes.rows[0]?.id;
-    buyerToken = generateAccessToken({ ...uRes.rows[0], role: 'BUYER' });
+    // 1. Create dedicated isolated buyer user
+    const insUser = await query(`
+      INSERT INTO users (email, name, role)
+      VALUES ('buyer_idem_suite_' || floor(random()*1000000) || '@agentpay.com', 'Idempotency Buyer', 'BUYER')
+      RETURNING *
+    `);
+    const buyerUser = insUser.rows[0];
+    buyerUserId = buyerUser.id;
+    buyerToken = generateAccessToken(buyerUser);
+
+    // 2. Create isolated policy and agent
+    const polRes = await query(`
+      INSERT INTO policies (name, version, daily_budget, max_transaction, approval_threshold, allowed_categories, blocked_categories)
+      VALUES ('Idempotency Policy', 'v1', 1000000, 200000, 100000, ARRAY['Electronics', 'Peripherals', 'Hardware', 'Furniture'], ARRAY['Gambling'])
+      RETURNING id
+    `);
+    await query(`
+      INSERT INTO agents (owner_id, name, description, policy_id, status)
+      VALUES ($1, 'Idempotency Test Agent', 'Agent for Idempotency Tests', $2, 'active')
+    `, [buyerUserId, polRes.rows[0].id]);
 
     const mRes = await query("SELECT id FROM merchants WHERE is_verified = true LIMIT 1");
     merchantId = mRes.rows[0]?.id;
@@ -35,27 +52,17 @@ describe('Track 01: Strict Financial Idempotency & Concurrency Safety Suite', ()
     const pRes = await query("SELECT id, name, price, brand, category FROM products WHERE merchant_id = $1 LIMIT 1", [merchantId]);
     productId = pRes.rows[0]?.id;
 
-    if (buyerUserId) {
-      await query(`
-        INSERT INTO user_preferences (user_id, monthly_budget, auto_purchase_limit, categories, preferred_brands, purchase_behavior, updated_at)
-        VALUES ($1, 1000000, 100000, ARRAY['Electronics', 'Peripherals'], ARRAY['Apple', 'Sony', 'Ambrane'], 'auto_within_limit', NOW())
-        ON CONFLICT (user_id) DO UPDATE SET
-          monthly_budget = 1000000,
-          auto_purchase_limit = 100000,
-          categories = ARRAY['Electronics', 'Peripherals'],
-          preferred_brands = ARRAY['Apple', 'Sony', 'Ambrane'],
-          purchase_behavior = 'auto_within_limit',
-          updated_at = NOW()
-      `, [buyerUserId]);
-
-      await query(`
-        UPDATE policies
-        SET approval_threshold = 100000,
-            max_transaction = 200000,
-            daily_budget = 1000000
-        WHERE id IN (SELECT policy_id FROM agents WHERE owner_id = $1 OR policy_id IS NOT NULL)
-      `, [buyerUserId]);
-    }
+    await query(`
+      INSERT INTO user_preferences (user_id, monthly_budget, auto_purchase_limit, categories, preferred_brands, purchase_behavior, updated_at)
+      VALUES ($1, 1000000, 100000, ARRAY['Electronics', 'Peripherals'], ARRAY['Apple', 'Sony', 'Ambrane'], 'auto_within_limit', NOW())
+      ON CONFLICT (user_id) DO UPDATE SET
+        monthly_budget = 1000000,
+        auto_purchase_limit = 100000,
+        categories = ARRAY['Electronics', 'Peripherals'],
+        preferred_brands = ARRAY['Apple', 'Sony', 'Ambrane'],
+        purchase_behavior = 'auto_within_limit',
+        updated_at = NOW()
+    `, [buyerUserId]);
   });
 
   it('TEST 1: Single purchase execution creates exactly 1 intent, 1 transaction, and 1 order', async () => {
