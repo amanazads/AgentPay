@@ -5,15 +5,39 @@ const { Pool } = pg;
 
 const isTest = process.env.NODE_ENV === 'test' || env.NODE_ENV === 'test';
 
-const pool = new Pool({
-  connectionString: env.DATABASE_URL,
-  max: isTest ? 5 : 20,
-  idleTimeoutMillis: isTest ? 500 : 30000,
-  connectionTimeoutMillis: 5000,
-});
+function createPoolInstance() {
+  const p = new Pool({
+    connectionString: env.DATABASE_URL,
+    max: isTest ? 10 : 20,
+    idleTimeoutMillis: isTest ? 1000 : 30000,
+    connectionTimeoutMillis: 5000,
+  });
 
-pool.on('error', (err) => {
-  console.error('[DB] Unexpected pool error:', err.message);
+  p.on('error', (err) => {
+    console.error('[DB] Unexpected pool error:', err.message);
+  });
+
+  return p;
+}
+
+let activePool = createPoolInstance();
+
+export function getPool() {
+  if (!activePool || activePool.ended) {
+    activePool = createPoolInstance();
+  }
+  return activePool;
+}
+
+export const pool = new Proxy({}, {
+  get(target, prop) {
+    const current = getPool();
+    const val = current[prop];
+    if (typeof val === 'function') {
+      return val.bind(current);
+    }
+    return val;
+  }
 });
 
 /**
@@ -24,7 +48,8 @@ pool.on('error', (err) => {
  */
 export async function query(text, params) {
   const start = Date.now();
-  const result = await pool.query(text, params);
+  const currentPool = getPool();
+  const result = await currentPool.query(text, params);
   const duration = Date.now() - start;
   if (env.isDevelopment && duration > 100) {
     console.log(`[DB] Slow query (${duration}ms):`, text.substring(0, 80));
@@ -36,7 +61,7 @@ export async function query(text, params) {
  * Get a client from the pool (for transactions)
  */
 export async function getClient() {
-  return pool.connect();
+  return getPool().connect();
 }
 
 /**
@@ -44,7 +69,7 @@ export async function getClient() {
  */
 export async function testConnection() {
   try {
-    const result = await pool.query('SELECT NOW()');
+    const result = await getPool().query('SELECT NOW()');
     console.log('[DB] Connected to PostgreSQL at', result.rows[0].now);
     return true;
   } catch (err) {
@@ -57,8 +82,8 @@ export async function testConnection() {
  * Close database pool
  */
 export async function closePool() {
-  if (pool && !pool.ended) {
-    await pool.end();
+  if (activePool && !activePool.ended) {
+    await activePool.end();
   }
 }
 

@@ -1,6 +1,5 @@
 # AgentPay — Autonomous AI Commerce Authorization & Control Plane
 
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
 [![Platform](https://img.shields.io/badge/Platform-AI%20Agent%20Commerce-blue.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-purple.svg)]()
 [![Architecture](https://img.shields.io/badge/Architecture-Canonical%20Specification-blueviolet.svg)](./AGENTPAY_ARCHITECTURE.md)
@@ -301,12 +300,12 @@ AgentPay includes a rigorous automated test battery verifying financial safety, 
 ```bash
 # Run backend test battery
 cd backend
-node --experimental-vm-modules ./node_modules/.bin/jest --runInBand --forceExit
+npm test -- --runInBand
 
 # Run AI service pytest suite
 cd ../ai-service
 source .venv/bin/activate
-pytest -v
+pytest -q
 ```
 
 ---

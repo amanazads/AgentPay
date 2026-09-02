@@ -120,6 +120,23 @@ export async function createPaymentOrder(arg1, arg2 = {}) {
     throw new Error('Duplicate payment processing in progress. Idempotency lock active.');
   }
 
+  // 1c. Double-checked locking: Verify if a transaction was committed by the previous lock holder
+  const postLockTx = await query('SELECT * FROM transactions WHERE purchase_intent_id = $1', [intent.id]);
+  if (postLockTx.rows.length > 0) {
+    await releaseIdempotencyLock(idempotencyKey);
+    const tx = postLockTx.rows[0];
+    return {
+      isDuplicate: true,
+      transactionId: tx.id,
+      orderId: tx.razorpay_order_id,
+      amount,
+      amountInPaise: toRazorpayAmount(amount),
+      currency: 'INR',
+      environment: tx.environment || effectiveEnv,
+      paymentMode: tx.payment_mode || effectiveMode,
+    };
+  }
+
   // 2. Strict Authorization Gate
   const authorizedStatuses = ['allowed', 'approved', 'completed', 'paid'];
   if (!authorizedStatuses.includes(intent.status)) {
