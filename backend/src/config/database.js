@@ -53,4 +53,13 @@ export async function testConnection() {
   }
 }
 
+/**
+ * Close database pool
+ */
+export async function closePool() {
+  if (pool && !pool.ended) {
+    await pool.end();
+  }
+}
+
 export default pool;

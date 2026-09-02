@@ -43,4 +43,20 @@ export async function testRedisConnection() {
   }
 }
 
+/**
+ * Close Redis connection gracefully
+ */
+export async function closeRedis() {
+  if (redis) {
+    try {
+      if (redis.status !== 'end') {
+        await redis.quit();
+      }
+    } catch {
+      redis.disconnect();
+    }
+    redis = null;
+  }
+}
+
 export default getRedis;
