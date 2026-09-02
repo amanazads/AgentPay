@@ -18,21 +18,20 @@ describe('Track 01: Critical Order Ledger, Inventory & Idempotency Hardening Sui
   let inStockProduct;
 
   beforeAll(async () => {
-    // 1. Fetch primary merchant containing catalog products
+    // 1. Fetch verified primary merchant
     const mRes = await query(`
-      SELECT merchant_id as id FROM products 
-      WHERE merchant_id IS NOT NULL 
-      GROUP BY merchant_id 
-      ORDER BY COUNT(*) DESC 
+      SELECT id FROM merchants 
+      WHERE is_verified = true AND (is_test_lab = false OR is_test_lab IS NULL) 
+      ORDER BY rating DESC 
       LIMIT 1
     `);
-    merchantId = mRes.rows[0].id;
+    merchantId = mRes.rows[0]?.id;
 
     let uRes = await query("SELECT * FROM users WHERE merchant_id = $1 LIMIT 1", [merchantId]);
     if (uRes.rows.length === 0) {
       const insUser = await query(`
         INSERT INTO users (email, name, role, merchant_id)
-        VALUES ('order_ledger_tester_${Date.now()}@agentpay.com', 'Order Ledger Tester', 'MERCHANT', $1)
+        VALUES ('order_ledger_tester_' || floor(random()*1000000) || '@agentpay.com', 'Order Ledger Tester', 'MERCHANT', $1)
         RETURNING *
       `, [merchantId]);
       merchantUser = insUser.rows[0];
@@ -47,17 +46,29 @@ describe('Track 01: Critical Order Ledger, Inventory & Idempotency Hardening Sui
     buyerUser = bRes.rows[0];
     buyerToken = generateAccessToken(buyerUser);
 
-    // 3. Ensure test product
-    let pRes = await query("SELECT * FROM products WHERE merchant_id = $1 AND in_stock = true AND inventory > 0 LIMIT 1", [merchantId]);
+    // 3. Ensure test product is active and eligible
+    let pRes = await query("SELECT * FROM products WHERE merchant_id = $1 LIMIT 1", [merchantId]);
     if (pRes.rows.length === 0) {
       const insP = await query(`
-        INSERT INTO products (merchant_id, sku, name, description, brand, category, price, currency, inventory, in_stock, specifications, status)
-        VALUES ($1, 'SKU-ORD-01', 'Logitech MX Master 3S Wireless Mouse', 'Mouse', 'Logitech', 'Electronics', 8995, 'INR', 10, true, '{"connectivity":"Bluetooth"}'::jsonb, 'ACTIVE')
+        INSERT INTO products (merchant_id, sku, name, description, brand, category, price, currency, inventory, in_stock, specifications, status, is_test_lab, commerce_eligible)
+        VALUES ($1, 'SKU-ORD-01', 'Logitech MX Master 3S Wireless Mouse', 'Mouse', 'Logitech', 'Electronics', 8995, 'INR', 10, true, '{"connectivity":"Bluetooth"}'::jsonb, 'ACTIVE', false, true)
         RETURNING *
       `, [merchantId]);
       inStockProduct = insP.rows[0];
     } else {
-      const updP = await query("UPDATE products SET name = 'Logitech MX Master 3S Wireless Mouse', brand = 'Logitech', category = 'Electronics', in_stock = true, inventory = 10, status = 'ACTIVE' WHERE id = $1 RETURNING *", [pRes.rows[0].id]);
+      const updP = await query(`
+        UPDATE products 
+        SET name = 'Logitech MX Master 3S Wireless Mouse', 
+            brand = 'Logitech', 
+            category = 'Electronics', 
+            in_stock = true, 
+            inventory = 10, 
+            status = 'ACTIVE',
+            is_test_lab = false,
+            commerce_eligible = true
+        WHERE id = $1 
+        RETURNING *
+      `, [pRes.rows[0].id]);
       inStockProduct = updP.rows[0];
     }
   });

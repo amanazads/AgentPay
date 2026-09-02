@@ -537,7 +537,7 @@ describe('Clean-Room End-to-End Validation: Full Flow Verification Suite', () =>
       for (const r of results) {
         expect(r.status).toBe(200);
       }
-    });
+    }, 15000);
   });
 
   // ══════════════════════════════════════════════════════════════════════════

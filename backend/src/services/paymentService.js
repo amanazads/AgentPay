@@ -95,134 +95,6 @@ export async function createPaymentOrder(arg1, arg2 = {}) {
     };
   }
 
-  // 2. Strict Authorization Gate
-  const authorizedStatuses = ['allowed', 'approved', 'completed', 'paid'];
-  if (!authorizedStatuses.includes(intent.status)) {
-    throw new Error(`Financial execution denied: Intent status is '${intent.status}'. Must be 'allowed' or 'approved' by AgentPay policy engine.`);
-  }
-
-  // 2a. Human Approval Integrity Verification (if intent has an approval record or policy decision required approval)
-  if (intent.status === 'approved') {
-    const appCheckRes = await query('SELECT * FROM approvals WHERE purchase_intent_id = $1', [intent.id]);
-    if (appCheckRes.rows.length > 0) {
-      const appRecord = appCheckRes.rows[0];
-      if (appRecord.status !== 'approved' || appRecord.decision !== 'APPROVE') {
-        throw new Error(`Financial execution denied: Approval state mismatch. Approval record is '${appRecord.status}' / '${appRecord.decision}'.`);
-      }
-
-      // Verify approval snapshot parameters cannot be reused or modified
-      if (appRecord.product_id && appRecord.product_id !== intent.product_id) {
-        throw new Error('Security Violation: Approval record is bound to a different product ID.');
-      }
-      if (appRecord.quantity && appRecord.quantity !== intent.quantity) {
-        throw new Error('Security Violation: Approval record is bound to a different purchase quantity.');
-      }
-      if (appRecord.quoted_price && parseFloat(appRecord.quoted_price) !== amount) {
-        throw new Error('Security Violation: Approval record is bound to a different authorized amount.');
-      }
-      if (appRecord.expires_at && new Date(appRecord.expires_at) < new Date()) {
-        throw new Error('Financial execution denied: Approval record has expired.');
-      }
-    } else if (intent.policy_decision === 'APPROVAL_REQUIRED') {
-      throw new Error('Financial execution denied: Approval record missing for approved purchase intent.');
-    }
-  }
-
-  // 2b. Live Inventory Availability Check
-  if (intent.product_id) {
-    const prodStockRes = await query('SELECT inventory, in_stock, name FROM products WHERE id = $1', [intent.product_id]);
-    if (prodStockRes.rows.length === 0) {
-      throw new Error(`Product ${intent.product_id} no longer exists in catalog.`);
-    }
-    const prodStock = prodStockRes.rows[0];
-    const qty = intent.quantity || 1;
-    if (!prodStock.in_stock || prodStock.inventory < qty) {
-      await recordAuditEvent({
-        eventType: 'INVENTORY_UNAVAILABLE_POST_APPROVAL',
-        actor: 'system',
-        userId: intent.user_id,
-        agentId: intent.agent_id,
-        purchaseIntentId: intent.id,
-        action: 'INVENTORY_PRE_PAYMENT_VALIDATION',
-        decision: 'BLOCK',
-        reasoning: `Product '${prodStock.name}' is out of stock or requested quantity (${qty}) exceeds available inventory (${prodStock.inventory}).`,
-        outcome: 'Payment creation aborted — out of stock',
-        io,
-      });
-      throw new Error(`Inventory unavailable: Product '${prodStock.name}' is out of stock or inventory (${prodStock.inventory}) is insufficient for quantity ${qty}.`);
-    }
-  }
-
-  // 2c. Pre-payment Merchant Connectivity & Payment Authorization Revalidation
-  if (intent.user_id && intent.merchant_id) {
-    const merchantCheck = await merchantConnectionService.validateMerchantForCheckout(intent.user_id, intent.merchant_id);
-    if (!merchantCheck.allowed) {
-      throw new Error(`Merchant checkout unavailable: ${merchantCheck.reason}`);
-    }
-
-    const authCheck = await paymentMethodService.verifyPaymentAuthorization(intent.user_id, amount);
-    if (!authCheck.authorized) {
-      throw new Error(`Payment authorization invalid: ${authCheck.reason}`);
-    }
-  }
-
-  // 2c. Cryptographic Quote Verification (if quote provided or linked to intent)
-  const targetQuote = options.quote || quoteId || intent.quote_id;
-  if (targetQuote) {
-    const quoteVerification = await verifyQuoteForCheckout(targetQuote, {
-      userId: intent.user_id,
-      agentId: intent.agent_id,
-      intentId: intent.id,
-      purchaseIntentId: intent.id,
-      requestedProductId: intent.product_id,
-      requestedMerchantId: intent.merchant_id,
-      requestedQuantity: intent.quantity,
-      requestedAmount: amount,
-    });
-    const verifiedQuoteId = quoteVerification.quote?.quoteId || (typeof targetQuote === 'string' ? targetQuote : targetQuote.quoteId);
-    if (verifiedQuoteId) {
-      await query('UPDATE purchase_intents SET quote_id = $1 WHERE id = $2', [verifiedQuoteId, intent.id]);
-    }
-  } else if (intent.product_id) {
-    // Re-read authoritative product price from database
-    const prodRes = await query('SELECT * FROM products WHERE id = $1', [intent.product_id]);
-    if (prodRes.rows.length === 0) {
-      throw new Error(`Product ${intent.product_id} no longer exists in catalog.`);
-    }
-    const dbProduct = prodRes.rows[0];
-    const qty = intent.quantity || 1;
-    const pricing = calculatePrice({ product: dbProduct, quantity: qty });
-    const tolerancePercent = env.PRICE_SURGE_TOLERANCE_PERCENT || 2.0;
-    const surgeMultiplier = 1 + (tolerancePercent / 100);
-
-    if (amount > pricing.totalAmount * surgeMultiplier) {
-      const driftPercent = (((amount - pricing.totalAmount) / pricing.totalAmount) * 100).toFixed(2);
-      await recordAuditEvent({
-        eventType: 'PRICE_SURGE_DETECTED',
-        actor: 'system',
-        userId: intent.user_id,
-        agentId: intent.agent_id,
-        purchaseIntentId: intent.id,
-        action: 'PRICE_INTEGRITY_CHECK',
-        decision: 'BLOCK',
-        reasoning: `Payment amount (₹${amount}) exceeds authoritative total (₹${pricing.totalAmount}) by ${driftPercent}%, exceeding allowed tolerance of ${tolerancePercent}%.`,
-        outcome: 'Payment creation aborted.',
-      });
-      throw new Error(`Price surge detected: Checkout amount (₹${amount}) exceeds authoritative catalog price (₹${pricing.totalAmount}) by ${driftPercent}%.`);
-    }
-  }
-
-  // 3. Environment & Mode Authorization Check
-  // Platform Safeguards for LIVE Autonomous Commerce
-  if (effectiveMode === 'LIVE') {
-    if (env.LIVE_AUTONOMOUS_COMMERCE_MODE === 'disabled') {
-      throw new Error('SECURITY LOCK: Live autonomous commerce is currently disabled platform-wide.');
-    }
-    if (amount > env.PLATFORM_MAX_TRANSACTION_LIMIT) {
-      throw new Error(`Platform limit exceeded: Maximum allowed autonomous transaction is ₹${env.PLATFORM_MAX_TRANSACTION_LIMIT.toLocaleString('en-IN')}`);
-    }
-  }
-
   const idempotencyKey = generateIdempotencyKey(intent.id, amount.toString(), `${effectiveMode}:${intent.policy_decision || 'ALLOW'}`);
 
   const lockAcquired = await acquireIdempotencyLock(idempotencyKey, 120);
@@ -246,6 +118,154 @@ export async function createPaymentOrder(arg1, arg2 = {}) {
       }
     }
     throw new Error('Duplicate payment processing in progress. Idempotency lock active.');
+  }
+
+  // 2. Strict Authorization Gate
+  const authorizedStatuses = ['allowed', 'approved', 'completed', 'paid'];
+  if (!authorizedStatuses.includes(intent.status)) {
+    await releaseIdempotencyLock(idempotencyKey);
+    throw new Error(`Financial execution denied: Intent status is '${intent.status}'. Must be 'allowed' or 'approved' by AgentPay policy engine.`);
+  }
+
+  // 2a. Human Approval Integrity Verification (if intent has an approval record or policy decision required approval)
+  if (intent.status === 'approved') {
+    const appCheckRes = await query('SELECT * FROM approvals WHERE purchase_intent_id = $1', [intent.id]);
+    if (appCheckRes.rows.length > 0) {
+      const appRecord = appCheckRes.rows[0];
+      if (appRecord.status !== 'approved' || appRecord.decision !== 'APPROVE') {
+        await releaseIdempotencyLock(idempotencyKey);
+        throw new Error(`Financial execution denied: Approval state mismatch. Approval record is '${appRecord.status}' / '${appRecord.decision}'.`);
+      }
+
+      // Verify approval snapshot parameters cannot be reused or modified
+      if (appRecord.product_id && appRecord.product_id !== intent.product_id) {
+        await releaseIdempotencyLock(idempotencyKey);
+        throw new Error('Security Violation: Approval record is bound to a different product ID.');
+      }
+      if (appRecord.quantity && appRecord.quantity !== intent.quantity) {
+        await releaseIdempotencyLock(idempotencyKey);
+        throw new Error('Security Violation: Approval record is bound to a different purchase quantity.');
+      }
+      if (appRecord.quoted_price && parseFloat(appRecord.quoted_price) !== amount) {
+        await releaseIdempotencyLock(idempotencyKey);
+        throw new Error('Security Violation: Approval record is bound to a different authorized amount.');
+      }
+      if (appRecord.expires_at && new Date(appRecord.expires_at) < new Date()) {
+        await releaseIdempotencyLock(idempotencyKey);
+        throw new Error('Financial execution denied: Approval record has expired.');
+      }
+    } else if (intent.policy_decision === 'APPROVAL_REQUIRED') {
+      await releaseIdempotencyLock(idempotencyKey);
+      throw new Error('Financial execution denied: Approval record missing for approved purchase intent.');
+    }
+  }
+
+  // 2b. Live Inventory Availability Check
+  if (intent.product_id) {
+    const prodStockRes = await query('SELECT inventory, in_stock, name FROM products WHERE id = $1', [intent.product_id]);
+    if (prodStockRes.rows.length === 0) {
+      await releaseIdempotencyLock(idempotencyKey);
+      throw new Error(`Product ${intent.product_id} no longer exists in catalog.`);
+    }
+    const prodStock = prodStockRes.rows[0];
+    const qty = intent.quantity || 1;
+    if (!prodStock.in_stock || prodStock.inventory < qty) {
+      await recordAuditEvent({
+        eventType: 'INVENTORY_UNAVAILABLE_POST_APPROVAL',
+        actor: 'system',
+        userId: intent.user_id,
+        agentId: intent.agent_id,
+        purchaseIntentId: intent.id,
+        action: 'INVENTORY_PRE_PAYMENT_VALIDATION',
+        decision: 'BLOCK',
+        reasoning: `Product '${prodStock.name}' is out of stock or requested quantity (${qty}) exceeds available inventory (${prodStock.inventory}).`,
+        outcome: 'Payment creation aborted — out of stock',
+        io,
+      });
+      await releaseIdempotencyLock(idempotencyKey);
+      throw new Error(`Inventory unavailable: Product '${prodStock.name}' is out of stock or inventory (${prodStock.inventory}) is insufficient for quantity ${qty}.`);
+    }
+  }
+
+  // 2c. Pre-payment Merchant Connectivity & Payment Authorization Revalidation
+  if (intent.user_id && intent.merchant_id) {
+    const merchantCheck = await merchantConnectionService.validateMerchantForCheckout(intent.user_id, intent.merchant_id);
+    if (!merchantCheck.allowed) {
+      await releaseIdempotencyLock(idempotencyKey);
+      throw new Error(`Merchant checkout unavailable: ${merchantCheck.reason}`);
+    }
+
+    const authCheck = await paymentMethodService.verifyPaymentAuthorization(intent.user_id, amount);
+    if (!authCheck.authorized) {
+      await releaseIdempotencyLock(idempotencyKey);
+      throw new Error(`Payment authorization invalid: ${authCheck.reason}`);
+    }
+  }
+
+  // 2c. Cryptographic Quote Verification (if quote provided or linked to intent)
+  const targetQuote = options.quote || quoteId || intent.quote_id;
+  if (targetQuote) {
+    try {
+      const quoteVerification = await verifyQuoteForCheckout(targetQuote, {
+        userId: intent.user_id,
+        agentId: intent.agent_id,
+        intentId: intent.id,
+        purchaseIntentId: intent.id,
+        requestedProductId: intent.product_id,
+        requestedMerchantId: intent.merchant_id,
+        requestedQuantity: intent.quantity,
+        requestedAmount: amount,
+      });
+      const verifiedQuoteId = quoteVerification.quote?.quoteId || (typeof targetQuote === 'string' ? targetQuote : targetQuote.quoteId);
+      if (verifiedQuoteId) {
+        await query('UPDATE purchase_intents SET quote_id = $1 WHERE id = $2', [verifiedQuoteId, intent.id]);
+      }
+    } catch (qvErr) {
+      await releaseIdempotencyLock(idempotencyKey);
+      throw qvErr;
+    }
+  } else if (intent.product_id) {
+    // Re-read authoritative product price from database
+    const prodRes = await query('SELECT * FROM products WHERE id = $1', [intent.product_id]);
+    if (prodRes.rows.length === 0) {
+      await releaseIdempotencyLock(idempotencyKey);
+      throw new Error(`Product ${intent.product_id} no longer exists in catalog.`);
+    }
+    const dbProduct = prodRes.rows[0];
+    const qty = intent.quantity || 1;
+    const pricing = calculatePrice({ product: dbProduct, quantity: qty });
+    const tolerancePercent = env.PRICE_SURGE_TOLERANCE_PERCENT || 2.0;
+    const surgeMultiplier = 1 + (tolerancePercent / 100);
+
+    if (amount > pricing.totalAmount * surgeMultiplier) {
+      const driftPercent = (((amount - pricing.totalAmount) / pricing.totalAmount) * 100).toFixed(2);
+      await recordAuditEvent({
+        eventType: 'PRICE_SURGE_DETECTED',
+        actor: 'system',
+        userId: intent.user_id,
+        agentId: intent.agent_id,
+        purchaseIntentId: intent.id,
+        action: 'PRICE_INTEGRITY_CHECK',
+        decision: 'BLOCK',
+        reasoning: `Payment amount (₹${amount}) exceeds authoritative total (₹${pricing.totalAmount}) by ${driftPercent}%, exceeding allowed tolerance of ${tolerancePercent}%.`,
+        outcome: 'Payment creation aborted.',
+      });
+      await releaseIdempotencyLock(idempotencyKey);
+      throw new Error(`Price surge detected: Checkout amount (₹${amount}) exceeds authoritative catalog price (₹${pricing.totalAmount}) by ${driftPercent}%.`);
+    }
+  }
+
+  // 3. Environment & Mode Authorization Check
+  // Platform Safeguards for LIVE Autonomous Commerce
+  if (effectiveMode === 'LIVE') {
+    if (env.LIVE_AUTONOMOUS_COMMERCE_MODE === 'disabled') {
+      await releaseIdempotencyLock(idempotencyKey);
+      throw new Error('SECURITY LOCK: Live autonomous commerce is currently disabled platform-wide.');
+    }
+    if (amount > env.PLATFORM_MAX_TRANSACTION_LIMIT) {
+      await releaseIdempotencyLock(idempotencyKey);
+      throw new Error(`Platform limit exceeded: Maximum allowed autonomous transaction is ₹${env.PLATFORM_MAX_TRANSACTION_LIMIT.toLocaleString('en-IN')}`);
+    }
   }
 
   try {
