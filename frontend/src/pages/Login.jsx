@@ -275,7 +275,37 @@ export default function Login({ defaultMode = 'login' }) {
           </button>
 
           <div className="auth-divider-line">
-            <span>or continue with email</span>
+            <span>or sign in with demo credentials</span>
+          </div>
+
+          {/* Quick Demo Credentials Autofill */}
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '1rem' }}>
+            <button
+              type="button"
+              className="btn-ui btn-ui-secondary btn-ui-sm"
+              style={{ flex: 1, fontSize: '12px', padding: '6px 8px', justifyContent: 'center' }}
+              onClick={() => {
+                setEmail('buyer@agentpay.ai');
+                setPassword('password123');
+                setSelectedRole('BUYER');
+                setError(null);
+              }}
+            >
+              Demo Buyer (buyer@agentpay.ai)
+            </button>
+            <button
+              type="button"
+              className="btn-ui btn-ui-secondary btn-ui-sm"
+              style={{ flex: 1, fontSize: '12px', padding: '6px 8px', justifyContent: 'center' }}
+              onClick={() => {
+                setEmail('merchant@agentpay.ai');
+                setPassword('password123');
+                setSelectedRole('MERCHANT');
+                setError(null);
+              }}
+            >
+              Demo Merchant (merchant@agentpay.ai)
+            </button>
           </div>
 
           {/* Email / Password Form */}
