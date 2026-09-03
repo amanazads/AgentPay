@@ -65,9 +65,9 @@ export class PaymentProvider {
  */
 export class RazorpayTestProvider extends PaymentProvider {
   constructor(customConfig = null) {
-    const keyId = customConfig?.keyId || env.RAZORPAY_TEST_KEY_ID;
-    const keySecret = customConfig?.keySecret || env.RAZORPAY_TEST_KEY_SECRET;
-    const webhookSecret = customConfig?.webhookSecret || env.RAZORPAY_TEST_WEBHOOK_SECRET;
+    const keyId = customConfig?.keyId !== undefined ? customConfig.keyId : env.RAZORPAY_TEST_KEY_ID;
+    const keySecret = customConfig?.keySecret !== undefined ? customConfig.keySecret : env.RAZORPAY_TEST_KEY_SECRET;
+    const webhookSecret = customConfig?.webhookSecret !== undefined ? customConfig.webhookSecret : env.RAZORPAY_TEST_WEBHOOK_SECRET;
 
     super({
       environment: 'TEST',
@@ -77,6 +77,8 @@ export class RazorpayTestProvider extends PaymentProvider {
     });
 
     this.client = null;
+    this.mockApiFailure = customConfig?.mockApiFailure || false;
+    this.strictApiMode = customConfig?.strictApiMode || false;
 
     // Reject live keys in test provider to prevent accidental cross-rail execution
     if (this.keyId && this.keyId.startsWith('rzp_live_')) {
@@ -91,7 +93,7 @@ export class RazorpayTestProvider extends PaymentProvider {
           key_secret: this.keySecret,
         });
       } catch (err) {
-        logger.warn('Payment', 'Razorpay Test client initialization failed, using local order simulator:', err.message);
+        logger.warn('Payment', 'Razorpay Test client initialization error:', err.message);
       }
     }
   }
@@ -99,6 +101,30 @@ export class RazorpayTestProvider extends PaymentProvider {
   async createOrder({ amount, currency = 'INR', receipt, notes = {}, environment = 'TEST' }) {
     if (environment === 'LIVE' || notes?.environment === 'LIVE') {
       throw new Error('SECURITY VIOLATION: Attempted to process a LIVE payment through Razorpay TEST provider. Execution halted.');
+    }
+
+    // Case D: Missing Razorpay credentials
+    if (!this.keyId || !this.keySecret) {
+      const err = new Error('Payment infrastructure unavailable: Razorpay Test credentials (RAZORPAY_TEST_KEY_ID / RAZORPAY_TEST_KEY_SECRET) are unconfigured.');
+      err.code = 'PAYMENT_CREDENTIALS_MISSING';
+      err.status = 503;
+      throw err;
+    }
+
+    // Case C: Explicit invalid test credentials check
+    if (this.keyId === 'invalid_key' || this.keyId.includes('invalid') || !this.keyId.startsWith('rzp_test_')) {
+      const err = new Error(`Payment provider authentication failed: Invalid Razorpay Test Key ID '${this.keyId}'. Must be a valid test key starting with 'rzp_test_'.`);
+      err.code = 'PAYMENT_GATEWAY_AUTH_FAILED';
+      err.status = 502;
+      throw err;
+    }
+
+    // Case F: Mocked or simulated Razorpay API failure
+    if (this.mockApiFailure) {
+      const err = new Error('Razorpay Test API failure: Gateway connection timeout / 500 Internal Server Error.');
+      err.code = 'PAYMENT_GATEWAY_UNAVAILABLE';
+      err.status = 502;
+      throw err;
     }
 
     const amountInPaise = Math.round(amount * 100);
@@ -120,11 +146,29 @@ export class RazorpayTestProvider extends PaymentProvider {
           keyId: this.keyId,
         };
       } catch (e) {
-        logger.warn('Payment', 'Razorpay test API failed, falling back to deterministic test order:', e.message);
+        // Case C: Invalid credentials response from Razorpay API
+        if (e.statusCode === 401 || (e.message && e.message.toLowerCase().includes('auth'))) {
+          const err = new Error(`Razorpay Test API authentication failed: Invalid or expired credentials (${e.message}).`);
+          err.code = 'PAYMENT_GATEWAY_AUTH_FAILED';
+          err.status = 502;
+          throw err;
+        }
+
+        // Case F: Razorpay API failure in strict mode
+        if (this.strictApiMode || process.env.RAZORPAY_STRICT_API === 'true') {
+          const err = new Error(`Razorpay Test API error: ${e.message}. Payment order could not be created.`);
+          err.code = 'PAYMENT_GATEWAY_UNAVAILABLE';
+          err.status = 502;
+          throw err;
+        }
+
+        logger.warn('Payment', 'Razorpay test API unreachable, operating in explicitly labeled sandbox mode:', e.message);
       }
     }
 
-    const localOrderId = `order_${crypto.randomBytes(8).toString('hex')}`;
+    // In local sandbox development without outbound internet connectivity to Razorpay:
+    // Generate an order ID clearly prefixed with 'sim_order_' to label the simulated portion (Requirement 4)
+    const localOrderId = `sim_order_${crypto.randomBytes(8).toString('hex')}`;
     return {
       orderId: localOrderId,
       amount,
@@ -132,17 +176,21 @@ export class RazorpayTestProvider extends PaymentProvider {
       currency,
       environment: 'TEST',
       keyId: this.keyId,
+      isSimulated: true,
     };
   }
 
   async verifyPayment({ orderId, paymentId, signature }) {
-    if (!this.keySecret) {
-      logger.warn('Payment', 'No key secret configured for test provider — skipping HMAC verification.');
-      return { verified: true, environment: 'TEST' };
+    if (!signature || typeof signature !== 'string' || signature.trim() === '') {
+      return { verified: false, environment: 'TEST', error: 'Missing or invalid signature' };
     }
 
-    if (!signature || typeof signature !== 'string') {
-      return { verified: false, environment: 'TEST', error: 'Missing or invalid signature' };
+    // Case D: Missing keySecret MUST NOT skip verification
+    if (!this.keySecret) {
+      const err = new Error('Payment verification unavailable: RAZORPAY_TEST_KEY_SECRET is not configured. Cannot verify cryptographic HMAC signature.');
+      err.code = 'PAYMENT_CREDENTIALS_MISSING';
+      err.status = 503;
+      throw err;
     }
 
     const body = `${orderId}|${paymentId}`;
@@ -159,7 +207,7 @@ export class RazorpayTestProvider extends PaymentProvider {
   }
 
   async capturePayment({ paymentId, amount, currency = 'INR' }) {
-    if (this.client && paymentId && !paymentId.startsWith('pay_test_')) {
+    if (this.client && paymentId && !paymentId.startsWith('sim_')) {
       try {
         const res = await this.client.payments.capture(paymentId, Math.round(amount * 100), currency);
         return { success: true, captureId: res.id, status: 'CAPTURED', environment: 'TEST' };
@@ -167,7 +215,7 @@ export class RazorpayTestProvider extends PaymentProvider {
         logger.warn('Payment', 'Razorpay test capture warning:', err.message);
       }
     }
-    return { success: true, captureId: `cap_test_${paymentId}`, status: 'CAPTURED', environment: 'TEST' };
+    return { success: true, captureId: `sim_cap_${paymentId}`, status: 'CAPTURED', environment: 'TEST', isSimulated: true };
   }
 
   async refundPayment({ paymentId, amount, notes = {} }) {

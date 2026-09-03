@@ -22,19 +22,19 @@ export class MerchantConnectionService {
     const allMerchantsRes = await query(`
       SELECT m.*, 
              umc.id as connection_id,
-             COALESCE(umc.connection_state, CASE WHEN umc.status = 'connected' THEN 'CONNECTED' WHEN umc.status = 'disconnected' THEN 'DISCONNECTED' ELSE 'CONNECTED' END) as connection_state,
+             COALESCE(umc.connection_state, CASE WHEN umc.status = 'connected' THEN 'CONNECTED' WHEN umc.status = 'disconnected' THEN 'DISCONNECTED' ELSE 'NOT_CONNECTED' END) as connection_state,
              COALESCE(umc.catalog_status, 'HEALTHY') as catalog_status,
              COALESCE(umc.inventory_status, 'FRESH') as inventory_status,
-             COALESCE(umc.checkout_status, 'AVAILABLE') as checkout_status,
-             COALESCE(umc.payment_provider_status, 'AVAILABLE') as payment_provider_status,
+             COALESCE(umc.checkout_status, CASE WHEN umc.status = 'connected' THEN 'AVAILABLE' ELSE 'UNCONFIGURED' END) as checkout_status,
+             COALESCE(umc.payment_provider_status, CASE WHEN umc.status = 'connected' THEN 'AVAILABLE' ELSE 'UNCONFIGURED' END) as payment_provider_status,
              umc.capabilities as user_capabilities,
              umc.account_identifier,
              umc.auth_type,
              umc.credentials_ref,
-             COALESCE(umc.created_at, NOW()) as connected_at,
-             COALESCE(umc.last_synced_at, NOW()) as last_synced_at,
-             COALESCE(umc.last_verified_at, NOW()) as last_verified_at,
-             COALESCE(umc.health_diagnostics, '{"catalog": "HEALTHY", "inventory": "FRESH", "checkout": "AVAILABLE", "payment": "AVAILABLE", "latencyMs": 18}'::jsonb) as health_diagnostics,
+             umc.created_at as connected_at,
+             umc.last_synced_at,
+             umc.last_verified_at,
+             umc.health_diagnostics,
              COALESCE(sub.product_count, 0) as live_product_count
       FROM merchants m
       LEFT JOIN user_merchant_connections umc 
@@ -61,12 +61,14 @@ export class MerchantConnectionService {
         ai_readable_catalog: liveProductCount > 0,
         checkout_api: isConnected && m.is_verified,
         order_api: isConnected && m.is_verified,
-        payment_provider: m.is_verified,
+        payment_provider: isConnected && m.is_verified,
       };
 
       const diagnostics = typeof m.health_diagnostics === 'object' && m.health_diagnostics !== null 
         ? m.health_diagnostics 
-        : { catalog: 'HEALTHY', inventory: 'FRESH', checkout: 'AVAILABLE', payment: 'AVAILABLE', latencyMs: 22 };
+        : (isConnected
+            ? { catalog: 'HEALTHY', inventory: 'FRESH', checkout: 'AVAILABLE', payment: 'AVAILABLE', latencyMs: 22 }
+            : { catalog: liveProductCount > 0 ? 'HEALTHY' : 'EMPTY', inventory: 'UNKNOWN', checkout: 'UNCONFIGURED', payment: 'UNCONFIGURED', latencyMs: 0 });
 
       return {
         merchantId: m.id,
@@ -76,22 +78,22 @@ export class MerchantConnectionService {
         rating: parseFloat(m.rating) || 4.8,
         description: m.description,
         isConnected,
-        connectionState: isConnected ? 'CONNECTED' : (m.connection_state || 'DISCONNECTED'),
+        connectionState: isConnected ? 'CONNECTED' : (m.connection_state || 'NOT_CONNECTED'),
         connectionStatus: isConnected ? 'connected' : 'disconnected',
         connectionId: m.connection_id || null,
-        accountIdentifier: m.account_identifier || 'sandbox_buyer@agentpay.ai',
-        authType: m.auth_type || 'oauth2_tokenized',
-        credentialsRef: m.credentials_ref ? 'Tokenized & Encrypted' : 'Tokenized (Sandbox)',
+        accountIdentifier: isConnected ? (m.account_identifier || 'connected_buyer@agentpay.ai') : null,
+        authType: isConnected ? (m.auth_type || 'oauth2_tokenized') : null,
+        credentialsRef: isConnected ? (m.credentials_ref ? 'Tokenized & Encrypted' : 'Tokenized (Sandbox)') : null,
         capabilities,
         productCount: liveProductCount,
         catalogStatus: m.catalog_status || (liveProductCount > 0 ? 'HEALTHY' : 'EMPTY'),
-        inventoryStatus: m.inventory_status || 'FRESH',
+        inventoryStatus: isConnected ? (m.inventory_status || 'FRESH') : 'UNKNOWN',
         checkoutStatus: isConnected ? 'AVAILABLE' : 'UNAVAILABLE',
-        paymentProviderStatus: m.payment_provider_status || 'AVAILABLE',
-        paymentProvider: 'Razorpay Payment Gateway',
-        connectedAt: m.connected_at,
-        lastSyncedAt: m.last_synced_at,
-        lastVerifiedAt: m.last_verified_at,
+        paymentProviderStatus: isConnected ? (m.payment_provider_status || 'AVAILABLE') : 'UNAVAILABLE',
+        paymentProvider: isConnected ? 'Razorpay Payment Gateway' : 'Not Connected',
+        connectedAt: m.connected_at || null,
+        lastSyncedAt: m.last_synced_at || null,
+        lastVerifiedAt: m.last_verified_at || null,
         healthDiagnostics: diagnostics,
       };
     });
@@ -226,15 +228,15 @@ export class MerchantConnectionService {
   /**
    * Pre-Payment Validation: Verifies if a merchant connector is active and checkout is available
    */
-  async validateMerchantForCheckout(userId, merchantId) {
+  async validateMerchantForCheckout(userId, merchantId, options = {}) {
     const merchRes = await query('SELECT * FROM merchants WHERE id = $1', [merchantId]);
     if (merchRes.rows.length === 0) {
-      return { allowed: false, reason: 'Merchant not found in verified merchant network' };
+      return { allowed: false, reason: 'Merchant not found in verified merchant network', code: 'MERCHANT_NOT_FOUND' };
     }
 
     const merchant = merchRes.rows[0];
     if (!merchant.is_verified) {
-      return { allowed: false, reason: `Merchant '${merchant.name}' is unverified` };
+      return { allowed: false, reason: `Merchant '${merchant.name}' is unverified`, code: 'MERCHANT_UNVERIFIED' };
     }
 
     if (userId) {
@@ -244,19 +246,29 @@ export class MerchantConnectionService {
         WHERE user_id = $1 AND merchant_id = $2
       `, [userId, merchantId]);
 
-      if (connRes.rows.length > 0) {
+      if (connRes.rows.length === 0) {
+        if (options.requireConnection || process.env.REQUIRE_MERCHANT_CONNECTION === 'true') {
+          return {
+            allowed: false,
+            reason: `Merchant '${merchant.name}' is not configured or connected to your buyer account. Connect store before proceeding with checkout.`,
+            code: 'MERCHANT_NOT_CONFIGURED',
+          };
+        }
+      } else {
         const conn = connRes.rows[0];
         const isDisconn = conn.connection_state === 'DISCONNECTED' || conn.status === 'disconnected';
         if (isDisconn) {
           return {
             allowed: false,
             reason: `Merchant '${merchant.name}' is disconnected by buyer. Autonomous checkout is prohibited.`,
+            code: 'MERCHANT_DISCONNECTED',
           };
         }
-        if (conn.checkout_status === 'UNAVAILABLE') {
+        if (conn.checkout_status === 'UNAVAILABLE' || conn.checkout_status === 'UNCONFIGURED') {
           return {
             allowed: false,
             reason: `Merchant '${merchant.name}' checkout capability is currently unavailable.`,
+            code: 'MERCHANT_CHECKOUT_UNAVAILABLE',
           };
         }
       }

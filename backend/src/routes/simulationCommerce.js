@@ -123,8 +123,8 @@ router.get(['/catalog-readiness', '/demo-data'], async (req, res, next) => {
 
     // Delivery Options
     const deliveryOptions = [
-      { id: 'STANDARD', name: 'Standard Delivery', fee: 0, estimate: '2-3 Business Days', carrier: 'AgentPay Express Logistics', isDefault: true },
-      { id: 'EXPRESS', name: 'Express Next-Day', fee: 199, estimate: 'Tomorrow by 2 PM', carrier: 'AgentPay Priority Air', isDefault: false },
+      { id: 'STANDARD', name: 'Standard Delivery', fee: 0, estimate: '2-3 Business Days', carrier: 'Simulated Standard Delivery (Demo)', isDefault: true },
+      { id: 'EXPRESS', name: 'Express Next-Day', fee: 199, estimate: 'Tomorrow by 2 PM', carrier: 'Simulated Express Delivery (Demo)', isDefault: false },
     ];
 
     // Compute dynamic readiness breakdown
@@ -441,7 +441,7 @@ router.post(['/evaluate-purchase-flow', '/execute-happy-path'], async (req, res,
         deliveryMethod,
         fee: deliveryFee,
         estimate: deliveryMethod === 'EXPRESS' ? 'Tomorrow by 2 PM' : '2-3 Business Days',
-        carrier: deliveryMethod === 'EXPRESS' ? 'AgentPay Priority Air' : 'AgentPay Express Logistics',
+        carrier: deliveryMethod === 'EXPRESS' ? 'Simulated Express Delivery (Demo)' : 'Simulated Standard Delivery (Demo)',
       },
     });
 
@@ -636,7 +636,7 @@ router.post(['/evaluate-purchase-flow', '/execute-happy-path'], async (req, res,
       paymentStatus: 'VERIFIED',
       deliveryAddress,
       deliveryMethod,
-      carrier: deliveryMethod === 'EXPRESS' ? 'AgentPay Priority Air' : 'AgentPay Express Logistics',
+      carrier: null,
       io,
     }));
 

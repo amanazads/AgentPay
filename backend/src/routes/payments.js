@@ -93,12 +93,19 @@ router.post(['/create', '/create-order'], async (req, res, next) => {
     }
 
     const userId = getUserIdFromRequest(req);
+    const uRes = await query('SELECT role FROM users WHERE id::text = $1', [userId]);
+    const role = (uRes.rows[0]?.role || '').toUpperCase();
+
+    if (role === 'MERCHANT') {
+      return res.status(403).json({ error: 'Forbidden: Merchant accounts cannot initiate checkout payments' });
+    }
+
     // Verify user owns the purchase intent
     const piRes = await query('SELECT user_id FROM purchase_intents WHERE id::text = $1', [purchase_intent_id]);
     if (piRes.rows.length === 0) {
       return res.status(404).json({ error: 'Purchase intent not found' });
     }
-    if (userId && piRes.rows[0].user_id && piRes.rows[0].user_id !== userId) {
+    if (role !== 'ADMIN' && piRes.rows[0].user_id && piRes.rows[0].user_id !== userId) {
       return res.status(403).json({ error: 'Unauthorized to create payment for this purchase intent' });
     }
 
@@ -146,10 +153,10 @@ router.post(['/verify', '/:id/verify'], async (req, res, next) => {
       return res.status(404).json({ error: 'Transaction not found' });
     }
     const tx = lookupRes.rows[0];
-    if (role === 'MERCHANT' && tx.merchant_id !== merchantId) {
+    if (role === 'MERCHANT' && (!merchantId || tx.merchant_id !== merchantId)) {
       return res.status(404).json({ error: 'Transaction not found' });
     }
-    if (role !== 'MERCHANT' && role !== 'ADMIN' && tx.user_id !== userId) {
+    if (role !== 'MERCHANT' && role !== 'ADMIN' && tx.user_id && tx.user_id !== userId) {
       return res.status(404).json({ error: 'Transaction not found' });
     }
 
@@ -165,6 +172,14 @@ router.post(['/verify', '/:id/verify'], async (req, res, next) => {
 
     res.json(result);
   } catch (err) {
+    if (err instanceof QuoteVerificationError) {
+      return res.status(400).json({
+        success: false,
+        error: err.message,
+        code: err.code,
+        details: err.details,
+      });
+    }
     next(err);
   }
 });
@@ -198,11 +213,11 @@ router.get('/:id', async (req, res, next) => {
 
     // Resource ownership enforcement
     if (role === 'MERCHANT') {
-      if (tx.merchant_id !== merchantId) {
+      if (!merchantId || tx.merchant_id !== merchantId) {
         return res.status(404).json({ error: 'Transaction not found' });
       }
     } else if (role !== 'ADMIN') {
-      if (tx.user_id !== userId) {
+      if (tx.user_id && tx.user_id !== userId) {
         return res.status(404).json({ error: 'Transaction not found' });
       }
     }

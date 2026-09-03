@@ -154,9 +154,21 @@ describe('Track 01: Merchant Dashboard, Data Integrity & Revenue Attribution Sui
     const beforeOrders = beforeRes.body.metrics.totalOrders;
     const beforeRevenue = beforeRes.body.metrics.totalRevenue;
 
-    // Fetch existing order from DB
-    const existingOrderRes = await query("SELECT * FROM orders WHERE merchant_id = $1 AND transaction_id IS NOT NULL LIMIT 1", [merchantId]);
-    const existing = existingOrderRes.rows[0];
+    // Fetch existing order from DB or create baseline order
+    let existingOrderRes = await query("SELECT * FROM orders WHERE merchant_id = $1 AND transaction_id IS NOT NULL LIMIT 1", [merchantId]);
+    let existing = existingOrderRes.rows[0];
+    if (!existing) {
+      existing = await createOrder({
+        purchaseIntentId: `pi_test_${Date.now()}`,
+        transactionId: `tx_idempotent_${Date.now()}`,
+        userId: buyerUser.id,
+        merchantId,
+        productId: testProduct.id,
+        totalAmount: parseFloat(testProduct.price),
+        paymentMethod: 'PREPAID',
+        paymentStatus: 'VERIFIED',
+      });
+    }
 
     // Attempt duplicate createOrder call with same transactionId
     const dupOrder = await createOrder({

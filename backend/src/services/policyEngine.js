@@ -159,11 +159,19 @@ export async function evaluatePolicy({
 
   const product = productRes.rows[0];
 
-  // 6. Product Availability Check
+  // 6. Product Availability & Inventory Check
+  const availableInventory = parseInt(product.inventory ?? 0, 10);
+  const requestedQty = Math.max(1, parseInt(quantity, 10) || 1);
+  const isAvailable = Boolean(product.in_stock && availableInventory >= requestedQty);
+
   rulesEvaluated.push({
     rule: 'PRODUCT_AVAILABILITY',
-    passed: product.in_stock,
-    details: product.in_stock ? 'Product is in stock' : 'Product is out of stock',
+    passed: isAvailable,
+    details: !product.in_stock
+      ? 'Product is out of stock'
+      : availableInventory < requestedQty
+      ? `Insufficient inventory (${availableInventory} available, ${requestedQty} requested)`
+      : `Product is in stock with sufficient inventory (${availableInventory} available)`,
   });
 
   if (!product.in_stock) {
@@ -172,6 +180,20 @@ export async function evaluatePolicy({
       decision: 'BLOCK',
       rule: 'OUT_OF_STOCK',
       reason: `Product '${product.name}' is currently out of stock`,
+      rulesEvaluated,
+      violatedRules,
+      policyVersion,
+      latencyMs: Date.now() - startTime,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  if (availableInventory < requestedQty) {
+    violatedRules.push('INSUFFICIENT_INVENTORY');
+    return {
+      decision: 'BLOCK',
+      rule: 'INSUFFICIENT_INVENTORY',
+      reason: `Insufficient inventory for product '${product.name}' (${availableInventory} available, ${requestedQty} requested).`,
       rulesEvaluated,
       violatedRules,
       policyVersion,

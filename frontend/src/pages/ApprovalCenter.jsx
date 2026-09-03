@@ -37,11 +37,17 @@ export default function ApprovalCenter() {
     setActionMessage(null);
     try {
       const res = await api.decideApproval(approvalId, decision, `Supervisor ${decision.toLowerCase()}d this procurement request.`);
+      let messageText = 'Request rejected. Purchase blocked.';
+      if (decision === 'APPROVE') {
+        if (res.order?.order_status === 'CONFIRMED' || (res.transaction?.status === 'completed' && res.transaction?.payment_verified)) {
+          messageText = `Approval granted. Payment verified and order confirmed (${res.order?.order_number || res.transaction?.payment_id}).`;
+        } else {
+          messageText = 'Approval granted. Purchase authorized and routed for payment execution.';
+        }
+      }
       setActionMessage({
         type: 'success',
-        text: decision === 'APPROVE'
-          ? `Authorization granted. Payment settled (${res.transaction?.payment_id || 'pay_test_verified'}).`
-          : 'Request rejected. Purchase blocked.',
+        text: messageText,
       });
       fetchApprovals();
     } catch (e) {

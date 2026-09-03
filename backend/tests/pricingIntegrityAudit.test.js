@@ -184,8 +184,8 @@ describe('Track 01: Complete Pricing-Integrity & Mathematical Consistency Audit 
     });
 
     try {
-      // Simulate merchant changing product price in catalog
-      const surgedPrice = originalPrice + 500;
+      // Simulate merchant changing product price in catalog (at least 5% surge to exceed 2% tolerance)
+      const surgedPrice = originalPrice + Math.max(500, Math.ceil(originalPrice * 0.05));
       await query('UPDATE products SET price = $1 WHERE id = $2', [surgedPrice, testProduct.id]);
 
       // Attempt to verify quote for checkout — must reject fail-closed
@@ -320,7 +320,7 @@ describe('Track 01: Complete Pricing-Integrity & Mathematical Consistency Audit 
     expect(intent.quantity).toBe(qty);
 
     // Ensure status is allowed
-    await query("UPDATE purchase_intents SET status = 'allowed' WHERE id = $1", [intent.id]);
+    await query("UPDATE purchase_intents SET status = 'allowed', state = 'CART_CREATED', policy_decision = 'ALLOW' WHERE id = $1", [intent.id]);
 
     // 5. Create Razorpay Test Order
     const rzpOrderRes = await request(app)

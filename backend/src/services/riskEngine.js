@@ -61,25 +61,61 @@ export async function assessRisk({
   // -------------------------------------------------------------
   let threatScore = 5;
   let threatReason = 'Product description contains standard catalog content.';
-  const originalText = `${product.name || ''} ${product.description || ''}`;
+  
+  const textParts = [
+    product.name || '',
+    product.description || '',
+    typeof product.specifications === 'object' ? JSON.stringify(product.specifications) : (product.specifications || ''),
+    product.reviews ? JSON.stringify(product.reviews) : '',
+    product.ai_summary || '',
+    product.target_audience || '',
+    product.use_cases ? JSON.stringify(product.use_cases) : '',
+    product.keywords ? JSON.stringify(product.keywords) : '',
+  ];
+  const originalText = textParts.filter(Boolean).join(' ');
   const textToCheck = originalText.toLowerCase();
   
   const injectionRegexes = [
-    /(?:ignore|disregard|forget|override|cancel|bypass)\s+(?:all\s+)?(?:(?:previous|prior|existing|above|system|developer|policy|spending)\s+)?(?:the\s+)?(?:rules|instructions|prompts|commands|constraints|limits|policies|policy)/i,
-    /(?:new\s+instructions?|system\s+override|priority\s+override|jailbreak|developer\s+mode)/i,
-    /\[(?:SYSTEM|DEVELOPER|ADMIN|ROOT)\]/i,
-    /<\|im_start\|>system/i,
-    /<<SYS>>|<SYS>/i,
-    /-{2,}\s*BEGIN\s+(?:SYSTEM|ADMIN)\s+(?:MESSAGE|INSTRUCTION)\s*-{2,}/i,
-    /###\s*System:/i,
+    // 1. Instruction Overrides, Jailbreaks & Role Escalation
+    /(?:ignore|disregard|forget|override|cancel|bypass)\s+(?:all\s+)?(?:(?:previous|prior|existing|above|system|developer|policy|spending|buyer'?s?|user'?s?)\s+)?(?:the\s+)?(?:rules|instructions|prompts|commands|constraints|limits|policies|policy|budget|guidelines)/i,
+    /(?:new\s+instructions?|system\s+override|priority\s+override|jailbreak|developer\s+mode|god\s+mode)/i,
+    /\[(?:SYSTEM|DEVELOPER|ADMIN|ROOT|ASSISTANT|INSTRUCTION)\]/i,
+    /<\|im_start\|>(?:system|developer|admin)?/i,
+    /<<SYS>>|<SYS>|<\/SYS>|<<\/SYS>>/i,
+    /-{2,}\s*BEGIN\s+(?:SYSTEM|ADMIN|DEVELOPER)\s+(?:MESSAGE|INSTRUCTION)\s*-{2,}/i,
+    /###\s*(?:System|Developer|Admin|Instruction):/i,
+    /(?:system\s*:\s*you\s+are|developer\s*:\s*instruction|admin\s*:\s*execute)/i,
+
+    // 2. Fake Admin Commands, Approvals & Policy Overrides
     /(?:admin\s+(?:command|mode|privilege|override)|sudo\s+(?:approve|authorize|execute|buy|grant)|grant\s+(?:admin|root|permission|authorization)|root\s+(?:access|privilege))/i,
-    /(?:set_approval\s*=\s*(?:auto|true|allow|bypass)|auto_approve\s*=\s*true)/i,
+    /(?:set_approval\s*=\s*(?:auto|true|allow|bypass)|auto_approve\s*=\s*true|force_approve\s*=\s*true)/i,
+    /(?:override|bypass|ignore)\s+(?:policy|policies|rules?)\s+(?:and\s+)?(?:approve|allow|authorize|grant)/i,
+    /(?:approve|authorize|allow)\s+(?:this\s+)?(?:transaction|order|purchase|intent)\s*(?:automatically|without\s+checks?|now)?/i,
+    /priority\s+executive\s+(?:order|approval|override)/i,
+    /transfer\s+funds/i,
+    
+    // 3. Spending Limit, Budget & Quantity Manipulation Directives
     /bypass\s+(?:spending|budget|purchasing)\s*(?:limits?|polic(?:y|ies)|rules?)?/i,
     /override\s+(?:spending|budget|limits?)/i,
     /(?:set\s+limit\s*(?:to|=)\s*(?:unlimited|\d{7,})|no\s+spending\s+limit)/i,
     /max_budget\s*=\s*(?:unlimited|[\d,]{7,})/i,
-    /(?:set|increase|override)\s+quantity\s*(?:to|=)\s*\d+/i,
-    /(?:buy|order)\s+\d{3,}\s+units/i,
+    /(?:ignore|disregard|override)\s+(?:the\s+)?(?:buyer'?s?|user'?s?)?\s*budget/i,
+    /(?:set|increase|override|change)\s+quantity\s*(?:to|=)\s*\d+/i,
+    /(?:buy|order|purchase|get)\s+\d{2,}\s+(?:units|items|pcs|pieces|laptops|phones|chairs)/i,
+    
+    // 4. Price Manipulation & Spoofed Amount Directives
+    /(?:use|set|charge|pay|enter)\s+(?:₹|rs\.?|inr)?\s*\d+(?:\.\d+)?\s+(?:instead|as\s+price|rather\s+than)\b/i,
+    /(?:use|pay|charge|set)\s+.*?instead\s+of\s+(?:the\s+)?(?:real|actual|catalog|official|original)\s+price/i,
+    /(?:fake|spoofed|manipulated|override|discounted)\s+price\s*(?:to|=|\:)?\s*(?:₹|rs\.?|inr)?\s*\d+/i,
+    /price\s*=\s*(?:₹|rs\.?|inr)?\s*0(?:\.00)?\b/i,
+    
+    // 5. System Instructions Exfiltration & Prompt Revelation Directives
+    /(?:reveal|show|display|print|output|leak|disclose|expose|tell\s+me|repeat|what\s+are)\s+(?:the\s+)?(?:system|developer|hidden|internal|initial|agent)?\s*(?:instructions?|prompts?|rules?|guidelines?|config|context|secrets?)/i,
+    /(?:what\s+is\s+your\s+(?:system\s+prompt|prompt|instructions?))/i,
+    
+    // 6. Inventory & Stock Restriction Bypass Directives
+    /(?:ignore|bypass|override|disregard)\s+(?:all\s+)?(?:inventory|stock|quantity|out\s+of\s+stock)\s*(?:restrictions?|limits?|checks?|rules?)?/i,
+    /(?:force_in_stock|infinite_stock|bypass_inventory)\s*=\s*true/i,
   ];
 
   let matchedPattern = null;

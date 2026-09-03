@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { query, getClient } from '../config/database.js';
 import { recordAuditEvent } from './auditService.js';
 import { createPaymentOrder, verifyPayment } from './paymentService.js';
+import { transitionPurchaseState, PurchaseStates } from './purchaseStateMachine.js';
 import { logger } from '../utils/logger.js';
 import env from '../config/env.js';
 
@@ -63,6 +64,14 @@ export async function processApproval({
 
   try {
     await client.query('BEGIN');
+
+    // 0. Immediate Global Emergency Kill Switch Check
+    const sysRes = await client.query('SELECT kill_switch_active FROM system_state WHERE id = 1');
+    if (sysRes.rows[0]?.kill_switch_active) {
+      const err = new Error('Emergency kill switch is active. Financial approval execution is halted.');
+      err.status = 503;
+      throw err;
+    }
 
     // 1. Fetch & Lock Approval Record FOR UPDATE
     const appRes = await client.query(`
@@ -229,6 +238,15 @@ export async function processApproval({
   } finally {
     client.release();
   }
+
+  // Transition purchase state machine to APPROVED or REJECTED
+  await transitionPurchaseState(
+    appRecord.intent_id,
+    isApproved ? PurchaseStates.APPROVED : PurchaseStates.REJECTED,
+    { actor: 'user', reason: notes || (isApproved ? 'Human reviewer approved' : 'Human reviewer rejected'), io }
+  ).catch((err) => {
+    logger.warn('Approval', `State machine transition to ${isApproved ? 'APPROVED' : 'REJECTED'} notice:`, err.message);
+  });
 
   // 8. Record Audit Trail
   await recordAuditEvent({

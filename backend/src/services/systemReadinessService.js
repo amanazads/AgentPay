@@ -807,9 +807,9 @@ export async function evaluateSystemReadiness({
     category: 'Fulfillment',
     title: 'Live Carrier Logistics API Integration',
     status: ReadinessStatuses.SIMULATED,
-    details: 'AgentPay Express Logistics simulated SLA tracking active (no third-party carrier API keys configured).',
+    details: 'Simulated SLA tracking active (no third-party 3PL carrier API keys configured; physical delivery is simulated).',
     evidence: {
-      carrierName: 'AgentPay Express Logistics',
+      carrierName: 'Simulated Courier (Demo)',
       trackingSlaSupported: true,
       liveCarrierApiConfigured: false,
     },

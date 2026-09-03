@@ -210,7 +210,7 @@ export default function MerchantAnalytics() {
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f1f5f9' }}>
               <span style={{ fontSize: '0.8125rem', color: '#0f172a', fontWeight: 500 }}>Shipped / Delivered</span>
-              <span className="mono" style={{ fontSize: '0.8125rem', fontWeight: 700, color: '#7c3aed' }}>{(outcomes.shipped || 0) + (outcomes.delivered || 0) + (outcomes.completed || 0)}</span>
+              <span className="mono" style={{ fontSize: '0.8125rem', fontWeight: 700, color: '#7c3aed' }}>{(outcomes.shipped || 0) + (outcomes.delivered || 0)}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f1f5f9' }}>
               <span style={{ fontSize: '0.8125rem', color: '#0f172a', fontWeight: 500 }}>Cancelled / Stock Released</span>

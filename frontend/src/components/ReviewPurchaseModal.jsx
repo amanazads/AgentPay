@@ -24,15 +24,25 @@ export default function ReviewPurchaseModal({ isOpen, onClose, intent, evaluatio
         currency: 'INR',
       });
 
-      if (!orderRes || !orderRes.order) {
-        throw new Error('Could not initialize Razorpay order.');
+      const orderId = orderRes?.orderId || orderRes?.order?.id || orderRes?.id;
+      if (!orderId) {
+        throw new Error('Could not initialize payment order.');
       }
 
-      const confirmRes = await api.confirmTestPayment(orderRes.order.id, {
+      const confirmRes = await api.confirmTestPayment(orderId, {
         razorpay_payment_id: `pay_test_${Math.random().toString(36).substring(2, 11)}`,
-        razorpay_order_id: orderRes.order.id,
+        razorpay_order_id: orderId,
         razorpay_signature: 'test_signature_valid',
       });
+
+      if (confirmRes.reconciliationRequired || confirmRes.state === 'RECONCILIATION_REQUIRED') {
+        setError('Payment status pending / reconciliation required. Authoritative confirmation in progress.');
+        return;
+      }
+
+      if (!confirmRes.verified && !confirmRes.order) {
+        throw new Error('Payment confirmation failed. Transaction not verified.');
+      }
 
       setSuccessResult(confirmRes);
       if (onPaymentSuccess) {
@@ -70,11 +80,11 @@ export default function ReviewPurchaseModal({ isOpen, onClose, intent, evaluatio
                 <div style={{ padding: '0.75rem 1rem' }}>
                   <div className="spec-summary-row mb-1">
                     <span className="spec-summary-label">Payment ID:</span>
-                    <span className="mono spec-summary-val">{successResult.transaction?.payment_id || 'pay_test_verified'}</span>
+                    <span className="mono spec-summary-val">{successResult.transaction?.razorpay_payment_id || successResult.transaction?.id || 'Confirmed'}</span>
                   </div>
                   <div className="spec-summary-row mb-1">
                     <span className="spec-summary-label">Order ID:</span>
-                    <span className="mono spec-summary-val">{successResult.transaction?.order_id || 'order_test_verified'}</span>
+                    <span className="mono spec-summary-val">{successResult.order?.order_number || successResult.transaction?.razorpay_order_id || 'Confirmed'}</span>
                   </div>
                   <div className="spec-summary-row">
                     <span className="spec-summary-label">Amount Settled:</span>

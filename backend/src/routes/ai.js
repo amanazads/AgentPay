@@ -127,14 +127,14 @@ router.get('/catalog', async (req, res, next) => {
           fee: 0,
           currency: 'INR',
           estimatedDays: 2,
-          carrier: 'AgentPay Express Logistics',
+          carrier: 'Simulated Standard Delivery (Demo)',
         },
         express: {
           name: 'Next-Day Express Air',
           fee: 199,
           currency: 'INR',
           estimatedDays: 1,
-          carrier: 'AgentPay Priority Air',
+          carrier: 'Simulated Express Delivery (Demo)',
         },
       },
       merchant: {
@@ -367,13 +367,16 @@ router.post('/checkout', async (req, res, next) => {
  */
 router.post('/chat', requireAuth, requireBuyer, async (req, res, next) => {
   let idempotencyKey = null;
+  let userScopedLockKey = null;
   let lockAcquired = false;
 
   try {
     const { message, agent_id } = req.body || {};
-    if (!message) {
+    if (!message || typeof message !== 'string' || message.trim().length === 0) {
       return res.status(400).json({ error: 'message is required' });
     }
+
+    const cleanMessage = message.trim();
 
     const finalUserId = getUserIdFromRequest(req);
 
@@ -389,6 +392,47 @@ router.post('/chat', requireAuth, requireBuyer, async (req, res, next) => {
 
       if (response.ok) {
         const data = await response.json();
+        // Server-Authoritative Grounding: AI output may propose a product, but backend must resolve it against catalog
+        if (data.status === 'MATCH_FOUND' && data.recommendation) {
+          const proposedProdId = data.recommendation.product_id || data.recommendation.id;
+          try {
+            const parsedIntent = parseBuyerIntent(message);
+            const gateRes = await validatePurchaseCandidate({
+              id: proposedProdId,
+              name: data.recommendation.name,
+              price: data.recommendation.price,
+              unit_price: data.recommendation.unit_price,
+              specifications: data.recommendation.specifications,
+              merchant_id: data.recommendation.merchant_id,
+            }, parsedIntent);
+
+            if (gateRes.valid) {
+              data.recommendation.id = gateRes.product.id;
+              data.recommendation.product_id = gateRes.product.id;
+              data.recommendation.name = gateRes.product.name;
+              data.recommendation.price = gateRes.product.price;
+              data.recommendation.merchant_id = gateRes.product.merchantId;
+              data.recommendation.merchant_name = gateRes.product.merchantName;
+              return res.json(data);
+            }
+          } catch (valErr) {
+            logger.warn('AI', `AI-proposed product '${proposedProdId}' failed authoritative catalog grounding: ${valErr.message}`);
+            return res.json({
+              status: 'NO_MATCH',
+              agent_name: data.agent_name || 'Procurement Agent',
+              reply: `I couldn't find an in-stock product that satisfies all mandatory catalog and policy constraints (${valErr.message}).`,
+              intent_parsed: parseBuyerIntent(message),
+              rejection_reasons: [valErr.message],
+              recommendation: null,
+              authorization_status: {
+                state: 'NO_MATCH',
+                explanation: 'Proposed product rejected by authoritative catalog pre-purchase gate.',
+                policy_summary: 'No financial transaction authorized.',
+              },
+              tools_called: data.tools_called || ['search_authoritative_catalog', 'evaluate_hard_constraints'],
+            });
+          }
+        }
         return res.json(data);
       }
     } catch (pyErr) {
@@ -481,22 +525,23 @@ router.post('/chat', requireAuth, requireBuyer, async (req, res, next) => {
       merchantCheckout = await merchantAdapter.createCheckout(cart);
     }
 
-    // 8. Distributed Idempotency Concurrency Guard
-    lockAcquired = await acquireIdempotencyLock(idempotencyKey, 60);
+    // 8. Distributed Idempotency Concurrency Guard (Scoped per buyer to prevent cross-buyer collision)
+    const userScopedLockKey = `ai:${finalUserId}:${idempotencyKey}`;
+    lockAcquired = await acquireIdempotencyLock(userScopedLockKey, 60);
     if (!lockAcquired) {
-      logger.info('Chat', `Concurrent in-flight request detected for key ${idempotencyKey} — awaiting primary completion.`);
+      logger.info('Chat', `Concurrent in-flight request detected for key ${idempotencyKey} (user ${finalUserId}) — awaiting primary completion.`);
       for (let i = 0; i < 50; i++) {
         await new Promise((r) => setTimeout(r, 100));
         const existingOrderRes = await query(`
           SELECT o.* FROM orders o
           JOIN purchase_intents pi ON o.purchase_intent_id = pi.id
-          WHERE pi.idempotency_key = $1
-        `, [idempotencyKey]);
+          WHERE pi.idempotency_key = $1 AND pi.user_id = $2
+        `, [idempotencyKey, finalUserId]);
 
         if (existingOrderRes.rows.length > 0) {
           const confirmedOrder = existingOrderRes.rows[0];
           const invRes = await query('SELECT * FROM invoices WHERE order_id = $1', [confirmedOrder.id]);
-          const intentRes = await query('SELECT * FROM purchase_intents WHERE idempotency_key = $1', [idempotencyKey]);
+          const intentRes = await query('SELECT * FROM purchase_intents WHERE idempotency_key = $1 AND user_id = $2', [idempotencyKey, finalUserId]);
 
           return res.json({
             status: 'MATCH_FOUND',
@@ -670,6 +715,8 @@ router.post('/chat', requireAuth, requireBuyer, async (req, res, next) => {
     const isAllowed = evaluation.decision === 'ALLOW';
     const isApproval = evaluation.decision === 'APPROVAL_REQUIRED';
 
+    let paymentError = null;
+
     if (isAllowed) {
       // ─── CANONICAL PAYMENT PIPELINE ────────────────────────────────────────
       // Route through the same createPaymentOrder → verifyPayment path that the
@@ -682,70 +729,92 @@ router.post('/chat', requireAuth, requireBuyer, async (req, res, next) => {
       //      without going through signature verification
       // ──────────────────────────────────────────────────────────────────────
 
-      let quote = null;
       try {
-        quote = await generateQuote({
-          productId: product.id,
-          quantity: parsedIntent.quantity || 1,
-          userId: finalUserId,
-          agentId: targetAgentId,
-          reserveStock: true,
-        });
-        const assignedQuoteId = quote?.quoteId || quote?.quote_id;
-        if (assignedQuoteId) {
-          await query('UPDATE purchase_intents SET quote_id = $1 WHERE id = $2', [assignedQuoteId, purchaseIntent.id]);
+        let quote = null;
+        try {
+          quote = await generateQuote({
+            productId: product.id,
+            quantity: parsedIntent.quantity || 1,
+            userId: finalUserId,
+            agentId: targetAgentId,
+            reserveStock: true,
+          });
+          const assignedQuoteId = quote?.quoteId || quote?.quote_id;
+          if (assignedQuoteId) {
+            await query('UPDATE purchase_intents SET quote_id = $1 WHERE id = $2', [assignedQuoteId, purchaseIntent.id]);
+          }
+        } catch (qErr) {
+          logger.warn('Chat', `Quote generation notice: ${qErr.message}`);
         }
-      } catch (qErr) {
-        logger.warn('Chat', `Quote generation notice: ${qErr.message}`);
-      }
 
-      const effectiveQuoteId = quote?.quoteId || quote?.quote_id || null;
+        const effectiveQuoteId = quote?.quoteId || quote?.quote_id || null;
 
-      // Step 1: Create Razorpay sandbox order (real SDK call or crypto-randomBytes fallback)
-      const paymentOrder = await createPaymentOrder({ purchaseIntentId: purchaseIntent.id, quoteId: effectiveQuoteId, io });
+        // Step 1: Create Razorpay sandbox order (real SDK call or crypto-randomBytes fallback)
+        const paymentOrder = await createPaymentOrder({ purchaseIntentId: purchaseIntent.id, quoteId: effectiveQuoteId, io });
 
-      // Step 2: Generate a traceable sandbox payment reference and compute a valid HMAC.
-      //         Uses the same HMAC formula that RazorpayTestProvider.verifyPayment() validates:
-      //         HMAC-SHA256(keySecret, orderId + '|' + paymentId)
-      const agentPaymentId = `pay_agent_${crypto.randomBytes(8).toString('hex')}`;
-      const agentSignature = env.RAZORPAY_TEST_KEY_SECRET
-        ? crypto
-            .createHmac('sha256', env.RAZORPAY_TEST_KEY_SECRET)
-            .update(`${paymentOrder.orderId}|${agentPaymentId}`)
-            .digest('hex')
-        : 'sandbox_verified'; // whitelisted bypass when no key secret is configured
+        // Step 2: Generate a traceable sandbox payment reference and compute a valid HMAC.
+        //         Uses the same HMAC formula that RazorpayTestProvider.verifyPayment() validates:
+        //         HMAC-SHA256(keySecret, orderId + '|' + paymentId)
+        const agentPaymentId = `pay_agent_${crypto.randomBytes(8).toString('hex')}`;
+        const agentSignature = env.RAZORPAY_TEST_KEY_SECRET
+          ? crypto
+              .createHmac('sha256', env.RAZORPAY_TEST_KEY_SECRET)
+              .update(`${paymentOrder.orderId}|${agentPaymentId}`)
+              .digest('hex')
+          : 'sandbox_verified'; // whitelisted bypass when no key secret is configured
 
-      // Step 3: Verify through the real payment service (validates HMAC, creates order + invoice)
-      await verifyPayment({
-        transactionId: paymentOrder.transactionId,
-        razorpayOrderId: paymentOrder.orderId,
-        razorpayPaymentId: agentPaymentId,
-        razorpaySignature: agentSignature,
-        io,
-      });
+        // Step 3: Verify through the real payment service (validates HMAC, creates order + invoice)
+        await verifyPayment({
+          transactionId: paymentOrder.transactionId,
+          razorpayOrderId: paymentOrder.orderId,
+          razorpayPaymentId: agentPaymentId,
+          razorpaySignature: agentSignature,
+          io,
+        });
 
-      // Step 4: Fetch the confirmed order and invoice that verifyPayment created internally
-      const confirmedOrderRes = await query(
-        'SELECT * FROM orders WHERE purchase_intent_id = $1 ORDER BY created_at DESC LIMIT 1',
-        [purchaseIntent.id]
-      );
-      confirmedOrder = confirmedOrderRes.rows[0] || null;
+        // Step 4: Fetch the confirmed order and invoice that verifyPayment created internally
+        const confirmedOrderRes = await query(
+          'SELECT * FROM orders WHERE purchase_intent_id = $1 ORDER BY created_at DESC LIMIT 1',
+          [purchaseIntent.id]
+        );
+        confirmedOrder = confirmedOrderRes.rows[0] || null;
 
-      if (confirmedOrder) {
-        const invRes = await query('SELECT * FROM invoices WHERE order_id = $1', [confirmedOrder.id]);
-        invoice = invRes.rows[0] || null;
+        if (confirmedOrder) {
+          const invRes = await query('SELECT * FROM invoices WHERE order_id = $1', [confirmedOrder.id]);
+          invoice = invRes.rows[0] || null;
+        }
+      } catch (payErr) {
+        logger.error('Chat', `Payment execution failed: ${payErr.message}`);
+        paymentError = payErr.message;
+        await query('UPDATE purchase_intents SET status = $1 WHERE id = $2', ['payment_failed', purchaseIntent.id]);
       }
     }
 
-      const reply = isAllowed
-        ? `I found the best match: **${product.name}** from *${product.merchant_name}* for **₹${price.toLocaleString('en-IN')}**.\n\nAll requirements and spending policies verified. Autonomous purchase confirmed (Order: ${confirmedOrder?.order_number || 'AGP-ORD-CONFIRMED'}).`
-        : isApproval
-        ? `I found **${product.name}** from *${product.merchant_name}* for **₹${price.toLocaleString('en-IN')}**.\n\nThis purchase exceeds your automatic limit and requires your 1-click approval.`
-        : `I found **${product.name}** (₹${price.toLocaleString('en-IN')}), but the purchase was blocked: ${evaluation.reason}`;
+    let reply;
+    let executionStatus;
 
-      res.json({
-        status: 'MATCH_FOUND',
-        execution_status: isAllowed ? 'COMPLETED' : isApproval ? 'APPROVAL_REQUIRED' : 'BLOCKED',
+    if (isAllowed) {
+      if (confirmedOrder && confirmedOrder.order_number) {
+        reply = `I found the best match: **${product.name}** from *${product.merchant_name}* for **₹${price.toLocaleString('en-IN')}**.\n\nAll requirements and spending policies verified. Autonomous purchase confirmed (Order: ${confirmedOrder.order_number}).`;
+        executionStatus = 'COMPLETED';
+      } else if (paymentError) {
+        reply = `I found **${product.name}** (₹${price.toLocaleString('en-IN')}) and policy authorized the purchase, but payment settlement failed: ${paymentError}. No funds were settled.`;
+        executionStatus = 'PAYMENT_FAILED';
+      } else {
+        reply = `I found the best match: **${product.name}** from *${product.merchant_name}* for **₹${price.toLocaleString('en-IN')}**.\n\nPolicy evaluation authorized this purchase. Payment processing is pending.`;
+        executionStatus = 'PAYMENT_PENDING';
+      }
+    } else if (isApproval) {
+      reply = `I found **${product.name}** from *${product.merchant_name}* for **₹${price.toLocaleString('en-IN')}**.\n\nThis purchase exceeds your automatic limit and requires your 1-click approval.`;
+      executionStatus = 'APPROVAL_REQUIRED';
+    } else {
+      reply = `I found **${product.name}** (₹${price.toLocaleString('en-IN')}), but the purchase was blocked: ${evaluation.reason}`;
+      executionStatus = 'BLOCKED';
+    }
+
+    res.json({
+      status: 'MATCH_FOUND',
+      execution_status: executionStatus,
         agent_name: agentName,
         reply,
         intent_parsed: parsedIntent,
@@ -782,8 +851,8 @@ router.post('/chat', requireAuth, requireBuyer, async (req, res, next) => {
         evaluation,
       });
     } finally {
-      if (lockAcquired && idempotencyKey) {
-        await releaseIdempotencyLock(idempotencyKey);
+      if (lockAcquired && (userScopedLockKey || idempotencyKey)) {
+        await releaseIdempotencyLock(userScopedLockKey || idempotencyKey);
       }
     }
   } catch (err) {

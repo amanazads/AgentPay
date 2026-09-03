@@ -1,4 +1,5 @@
 import { query } from '../config/database.js';
+import env from '../config/env.js';
 import { recordAuditEvent } from './auditService.js';
 import { logger } from '../utils/logger.js';
 
@@ -14,7 +15,7 @@ export class PaymentMethodService {
   /**
    * Retrieves all active and configured payment authorizations for a buyer
    */
-  async getUserPaymentMethods(userId) {
+  async getUserPaymentMethods(userId, options = {}) {
     if (!userId) {
       throw new Error('User ID is required for payment methods retrieval');
     }
@@ -44,8 +45,11 @@ export class PaymentMethodService {
       ORDER BY is_default DESC, created_at DESC
     `, [userId]);
 
-    // If no record exists, generate a default sandbox authorization
+    // Truthfulness: If no record exists, return [] in live mode or when skipAutoSeed is requested
     if (res.rows.length === 0) {
+      if (options.skipAutoSeed || options.autoSeed === false || env.isLiveMode) {
+        return [];
+      }
       const defaultAuth = await this.addPaymentMethod(userId, {
         provider: 'razorpay_sandbox',
         method_type: 'upi_mandate',
@@ -146,7 +150,7 @@ export class PaymentMethodService {
       throw new Error('User ID is required for payment authorization revocation');
     }
 
-    const res = await query(`
+    let res = await query(`
       UPDATE user_payment_methods
       SET status = 'revoked',
           revoked_at = NOW(),
@@ -157,15 +161,24 @@ export class PaymentMethodService {
     `, [reason, methodId, userId]);
 
     if (res.rows.length === 0) {
-      // If no row found by id, attempt to revoke all active methods for user
-      await query(`
-        UPDATE user_payment_methods
-        SET status = 'revoked',
-            revoked_at = NOW(),
-            revoked_reason = $1,
-            updated_at = NOW()
-        WHERE user_id = $2 AND status = 'active'
-      `, [reason, userId]);
+      if (methodId === 'all' || methodId === 'default') {
+        res = await query(`
+          UPDATE user_payment_methods
+          SET status = 'revoked',
+              revoked_at = NOW(),
+              revoked_reason = $1,
+              updated_at = NOW()
+          WHERE user_id = $2 AND status = 'active'
+          RETURNING *
+        `, [reason, userId]);
+      } else {
+        const otherUserMethod = await query('SELECT id FROM user_payment_methods WHERE id = $1', [methodId]);
+        if (otherUserMethod.rows.length > 0) {
+          const err = new Error('Unauthorized: You do not own this payment authorization');
+          err.status = 403;
+          throw err;
+        }
+      }
     }
 
     // Fail-closed: Stop any active purchase intents in evaluating/pending state for this user
@@ -200,9 +213,9 @@ export class PaymentMethodService {
   /**
    * Deterministic Server-Side Payment Authorization Check (Dual-Limit Resolution)
    */
-  async verifyPaymentAuthorization(userId, amount) {
+  async verifyPaymentAuthorization(userId, amount, options = {}) {
     const parsedAmount = parseFloat(amount) || 0;
-    const methods = await this.getUserPaymentMethods(userId);
+    const methods = await this.getUserPaymentMethods(userId, options);
     const activeMethods = methods.filter((m) => m.isActive && !m.isRevoked);
 
     if (activeMethods.length === 0) {

@@ -36,17 +36,12 @@ describe('Track 01: TEST vs LIVE Environment Isolation & Payment Rail Defense Su
     testMerchantId = merchant.id;
 
     // 2. Product
-    let pRes = await query("SELECT * FROM products WHERE merchant_id = $1 LIMIT 1", [testMerchantId]);
-    let product = pRes.rows[0];
-    if (!product) {
-      const insP = await query(`
-        INSERT INTO products (merchant_id, name, category, price, in_stock, inventory, is_test_lab)
-        VALUES ($1, 'Isolation Hardened Headset', 'Electronics', 4999.00, true, 50, true)
-        RETURNING *
-      `, [testMerchantId]);
-      product = insP.rows[0];
-    }
-    testProductId = product.id;
+    const insP = await query(`
+      INSERT INTO products (merchant_id, name, category, price, in_stock, inventory, is_test_lab)
+      VALUES ($1, 'Isolation Hardened Headset ' || NOW(), 'Electronics', 4999.00, true, 50, true)
+      RETURNING *
+    `, [testMerchantId]);
+    testProductId = insP.rows[0].id;
 
     // 3. User
     let uRes = await query("SELECT * FROM users WHERE role = 'BUYER' LIMIT 1");

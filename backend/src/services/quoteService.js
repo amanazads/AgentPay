@@ -18,6 +18,7 @@ import { logger } from '../utils/logger.js';
  */
 
 export const QuoteErrorCodes = {
+  KILL_SWITCH_ACTIVE: 'KILL_SWITCH_ACTIVE',
   INVALID_INPUT: 'INVALID_INPUT',
   PRODUCT_NOT_FOUND: 'PRODUCT_NOT_FOUND',
   PRODUCT_INELIGIBLE: 'PRODUCT_INELIGIBLE',
@@ -158,8 +159,17 @@ export async function generateQuote({
   agentId = null,
   durationMinutes = 15,
   policyVersion = 'v1.0',
-  reserveStock = false,
+  reserveStock = true,
 }) {
+  // 0. Immediate Global Emergency Kill Switch Check
+  const sysState = await query('SELECT kill_switch_active FROM system_state WHERE id = 1');
+  if (sysState.rows[0]?.kill_switch_active) {
+    throw new QuoteVerificationError(
+      QuoteErrorCodes.KILL_SWITCH_ACTIVE,
+      'Emergency kill switch is active. Quote generation is halted.'
+    );
+  }
+
   if (!productId) {
     throw new QuoteVerificationError(QuoteErrorCodes.INVALID_INPUT, 'productId is required for quote generation');
   }
@@ -385,6 +395,18 @@ export async function verifyQuoteForCheckout(quoteInput, context = {}) {
     throw new QuoteVerificationError(QuoteErrorCodes.INVALID_INPUT, 'Invalid quote input provided for verification.');
   }
 
+  // 0. Immediate Global Emergency Kill Switch Check
+  const sysState = await query('SELECT kill_switch_active FROM system_state WHERE id = 1');
+  if (sysState.rows[0]?.kill_switch_active) {
+    if (quoteObj?.quoteId) {
+      await releaseReservation(quoteObj.quoteId, 'Emergency kill switch active').catch(() => {});
+    }
+    throw new QuoteVerificationError(
+      QuoteErrorCodes.KILL_SWITCH_ACTIVE,
+      'Emergency kill switch is active. Checkout execution is halted.'
+    );
+  }
+
   // 2. Cryptographic Signature Verification (Deterministic & Fail-Closed)
   const isSigValid = verifyQuoteSignature(quoteObj, quoteObj.signature);
   if (!isSigValid) {
@@ -398,6 +420,9 @@ export async function verifyQuoteForCheckout(quoteInput, context = {}) {
   const expirationTime = new Date(quoteObj.expiration).getTime();
   const now = Date.now();
   if (isNaN(expirationTime) || now > expirationTime) {
+    if (quoteObj.quoteId) {
+      await releaseReservation(quoteObj.quoteId, 'Quote expired').catch(() => {});
+    }
     throw new QuoteVerificationError(
       QuoteErrorCodes.QUOTE_EXPIRED,
       `Quote '${quoteObj.quoteId}' has expired at ${quoteObj.expiration}. Replay of expired quotes is prohibited.`
@@ -424,8 +449,31 @@ export async function verifyQuoteForCheckout(quoteInput, context = {}) {
     }
   }
 
-  // 5. Contextual Intent Matching (Product / Merchant / Quantity / Amount)
+  // 5. Contextual Intent Matching (Product / Merchant / Quantity / Amount / Buyer / Agent)
+  if (userId && quoteObj.userId && String(userId) !== String(quoteObj.userId)) {
+    if (quoteObj.quoteId) {
+      await releaseReservation(quoteObj.quoteId, 'Unauthorized quote consumer').catch(() => {});
+    }
+    throw new QuoteVerificationError(
+      QuoteErrorCodes.UNAUTHORIZED_QUOTE_CONSUMER,
+      `Quote '${quoteObj.quoteId}' belongs to a different buyer (${quoteObj.userId}) and cannot be consumed by user (${userId}).`
+    );
+  }
+
+  if (agentId && quoteObj.agentId && String(agentId) !== String(quoteObj.agentId)) {
+    if (quoteObj.quoteId) {
+      await releaseReservation(quoteObj.quoteId, 'Unauthorized quote agent').catch(() => {});
+    }
+    throw new QuoteVerificationError(
+      QuoteErrorCodes.UNAUTHORIZED_QUOTE_CONSUMER,
+      `Quote '${quoteObj.quoteId}' was issued to agent (${quoteObj.agentId}) and cannot be consumed by agent (${agentId}).`
+    );
+  }
+
   if (requestedProductId && requestedProductId !== quoteObj.productId) {
+    if (quoteObj.quoteId) {
+      await releaseReservation(quoteObj.quoteId, 'Product mismatch on quote verification').catch(() => {});
+    }
     throw new QuoteVerificationError(
       QuoteErrorCodes.MERCHANT_PRODUCT_MISMATCH,
       `Quote product (${quoteObj.productId}) does not match requested product (${requestedProductId}).`
@@ -433,6 +481,9 @@ export async function verifyQuoteForCheckout(quoteInput, context = {}) {
   }
 
   if (requestedMerchantId && requestedMerchantId !== quoteObj.merchantId) {
+    if (quoteObj.quoteId) {
+      await releaseReservation(quoteObj.quoteId, 'Merchant mismatch on quote verification').catch(() => {});
+    }
     throw new QuoteVerificationError(
       QuoteErrorCodes.MERCHANT_PRODUCT_MISMATCH,
       `Quote merchant (${quoteObj.merchantId}) does not match requested merchant (${requestedMerchantId}).`
@@ -440,17 +491,37 @@ export async function verifyQuoteForCheckout(quoteInput, context = {}) {
   }
 
   if (requestedQuantity !== null && requestedQuantity !== undefined && parseInt(requestedQuantity, 10) !== quoteObj.quantity) {
+    if (quoteObj.quoteId) {
+      await releaseReservation(quoteObj.quoteId, 'Quantity mismatch on quote verification').catch(() => {});
+    }
     throw new QuoteVerificationError(
       QuoteErrorCodes.QUANTITY_MISMATCH,
       `Requested quantity (${requestedQuantity}) does not match locked quote quantity (${quoteObj.quantity}).`
     );
   }
 
-  if (requestedAmount !== null && requestedAmount !== undefined && parseFloat(requestedAmount) !== quoteObj.totalAmount) {
+  if (requestedAmount !== null && requestedAmount !== undefined && Math.abs(parseFloat(requestedAmount) - quoteObj.totalAmount) > 0.01) {
+    if (quoteObj.quoteId) {
+      await releaseReservation(quoteObj.quoteId, 'Amount mismatch on quote verification').catch(() => {});
+    }
     throw new QuoteVerificationError(
       QuoteErrorCodes.AMOUNT_MISMATCH,
       `Requested amount (₹${requestedAmount}) does not match authorized quote total (₹${quoteObj.totalAmount}).`
     );
+  }
+
+  if (context.authorizationCeiling !== undefined && context.authorizationCeiling !== null) {
+    const ceiling = parseFloat(context.authorizationCeiling);
+    if (quoteObj.totalAmount > ceiling) {
+      if (quoteObj.quoteId) {
+        await releaseReservation(quoteObj.quoteId, `Quote total (₹${quoteObj.totalAmount}) exceeds user authorization ceiling (₹${ceiling})`).catch(() => {});
+      }
+      throw new QuoteVerificationError(
+        QuoteErrorCodes.POLICY_VIOLATION,
+        `Authorization ceiling exceeded: Total amount (₹${quoteObj.totalAmount}) exceeds authorized maximum ceiling (₹${ceiling}).`,
+        { authorizedCeiling: ceiling, totalAmount: quoteObj.totalAmount }
+      );
+    }
   }
 
   // 6. Live Database Catalog Revalidation (Merchant, Price, In-stock, Inventory)
@@ -487,11 +558,36 @@ export async function verifyQuoteForCheckout(quoteInput, context = {}) {
     ? context.tolerancePercent
     : (env.PRICE_SURGE_TOLERANCE_PERCENT || 2.0);
 
+  if (context.rejectOnCatalogPriceChange && currentCatalogPrice !== quoteObj.unitPrice) {
+    if (quoteObj.quoteId) {
+      await releaseReservation(quoteObj.quoteId, `Catalog price changed from ₹${quoteObj.unitPrice} to ₹${currentCatalogPrice}`).catch(() => {});
+    }
+
+    await recordAuditEvent({
+      eventType: 'PRICE_CHANGED',
+      actor: 'system',
+      userId: userId || quoteObj.userId,
+      agentId: agentId || quoteObj.agentId,
+      purchaseIntentId: context.intentId || context.purchaseIntentId || null,
+      action: 'VERIFY_QUOTE_PRICE',
+      decision: 'BLOCK',
+      reasoning: `Catalog price changed from ₹${quoteObj.unitPrice} to ₹${currentCatalogPrice}. Checkout rejected.`,
+      outcome: 'Payment aborted. Reservation released.',
+      metadata: { quoteId: quoteObj.quoteId, quotedPrice: quoteObj.unitPrice, currentCatalogPrice },
+    }).catch(() => {});
+
+    throw new QuoteVerificationError(
+      QuoteErrorCodes.PRICE_CHANGED,
+      `Catalog price has changed: Catalog price (₹${currentCatalogPrice}) deviates from locked quote price (₹${quoteObj.unitPrice}).`,
+      { quotedPrice: quoteObj.unitPrice, currentPrice: currentCatalogPrice, status: 'PRICE_CHANGED' }
+    );
+  }
+
   if (currentCatalogPrice > quoteObj.unitPrice) {
     const driftPercent = ((currentCatalogPrice - quoteObj.unitPrice) / quoteObj.unitPrice) * 100;
     const roundedDrift = Math.round(driftPercent * 10000) / 10000;
 
-    if (roundedDrift > tolerancePercent) {
+    if (roundedDrift > tolerancePercent || tolerancePercent === 0) {
       if (quoteObj.quoteId) {
         await releaseReservation(quoteObj.quoteId, `Price surge of ${driftPercent.toFixed(2)}% exceeded tolerance of ${tolerancePercent}%`).catch(() => {});
       }

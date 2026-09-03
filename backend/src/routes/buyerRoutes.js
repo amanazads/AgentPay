@@ -68,7 +68,7 @@ router.get('/purchases', async (req, res, next) => {
       JOIN purchase_intents pi ON t.purchase_intent_id = pi.id
       LEFT JOIN products p ON pi.product_id = p.id
       LEFT JOIN merchants m ON pi.merchant_id = m.id
-      LEFT JOIN orders o ON o.transaction_id = t.id
+      LEFT JOIN orders o ON (o.transaction_id = t.id OR (t.purchase_intent_id IS NOT NULL AND o.purchase_intent_id = t.purchase_intent_id))
       LEFT JOIN invoices inv ON inv.order_id = o.id
       WHERE t.user_id = $1
       ORDER BY t.created_at DESC
@@ -116,7 +116,8 @@ router.get('/purchases', async (req, res, next) => {
         fulfillment_status: o.fulfillment_status || o.order_status || 'CONFIRMED',
         status: o.fulfillment_status || o.order_status || 'CONFIRMED',
         tracking_number: o.tracking_number,
-        carrier: o.carrier || 'AgentPay Express Logistics',
+        carrier: o.carrier || (['SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(o.fulfillment_status) ? 'Simulated Courier (Demo)' : null),
+        is_simulated: o.environment !== 'LIVE',
         timeline: o.timeline || [],
         order_timeline: o.timeline || [],
         invoice_id: o.invoice_id,
@@ -125,6 +126,44 @@ router.get('/purchases', async (req, res, next) => {
         is_order: true,
         why: 'Discovered and purchased by Autonomous Buyer Agent',
       });
+    }
+
+    // 1b. Pending, Failed & Reconciliation Transactions (where no confirmed order exists)
+    for (const t of txRes.rows) {
+      if (!t.order_id) {
+        const isReconciliation = t.tx_status === 'reconciliation_required' || t.intent_status === 'reconciliation_required';
+        const isFailed = t.tx_status === 'failed' || t.intent_status === 'failed';
+
+        purchases.push({
+          id: t.id,
+          order_id: null,
+          order_number: `TX-${t.id.substring(0, 8).toUpperCase()}`,
+          product_name: t.product_name || 'Procurement Item',
+          product_brand: t.product_brand || 'Store Catalog',
+          product_category: t.product_category || 'General',
+          product_image: t.product_image,
+          amount: parseFloat(t.amount || 0),
+          merchant_name: t.merchant_name || 'Store Catalog',
+          merchant_verified: t.merchant_verified,
+          payment_status: isReconciliation ? 'RECONCILIATION_REQUIRED' : isFailed ? 'FAILED' : 'PAYMENT_PENDING',
+          order_status: isReconciliation ? 'RECONCILIATION_REQUIRED' : isFailed ? 'PAYMENT_FAILED' : 'PAYMENT_PENDING',
+          fulfillment_status: isReconciliation ? 'RECONCILIATION_REQUIRED' : isFailed ? 'PAYMENT_FAILED' : 'NOT_STARTED',
+          status: isReconciliation ? 'RECONCILIATION_REQUIRED' : isFailed ? 'PAYMENT_FAILED' : 'PAYMENT_PENDING',
+          tracking_number: null,
+          carrier: null,
+          timeline: [],
+          order_timeline: [],
+          invoice_id: null,
+          invoice_number: null,
+          created_at: t.created_at,
+          is_order: false,
+          why: isReconciliation
+            ? 'Payment status pending / reconciliation required'
+            : isFailed
+            ? 'Payment attempt failed'
+            : 'Payment authorized, awaiting settlement',
+        });
+      }
     }
 
     // 2. Blocked Transactions
@@ -186,7 +225,7 @@ router.get('/orders/:id', async (req, res, next) => {
       return res.status(404).json({ error: 'Order not found' });
     }
     const userId = getUserIdFromRequest(req);
-    if (order.user_id !== userId) {
+    if (order.user_id && order.user_id !== userId) {
       return res.status(403).json({ error: 'Unauthorized' });
     }
     res.json({ order });

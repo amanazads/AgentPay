@@ -104,7 +104,7 @@ describe('Cross-System Order State, Data Consistency & Fulfillment State Machine
 
     expect(updated.order_status).toBe('SHIPPED');
     expect(updated.fulfillment_status).toBe('SHIPPED');
-    expect(updated.tracking_number).toMatch(/^TRK-/);
+    expect(updated.tracking_number).toMatch(/^(SIM-TRK|TRK)-/);
 
     const buyerOrder = await getOrderById(testOrderId);
     expect(buyerOrder.order_status).toBe('SHIPPED');

@@ -37,8 +37,11 @@ const ALLOWED_TRANSITIONS = {
   [PurchaseStates.CREATED]: [
     PurchaseStates.SEARCHING,
     PurchaseStates.PRODUCT_SELECTED,
+    PurchaseStates.CART_CREATED,
+    PurchaseStates.PAYMENT_PENDING,
     PurchaseStates.APPROVAL_REQUIRED,
     PurchaseStates.AWAITING_APPROVAL,
+    PurchaseStates.RECONCILIATION_REQUIRED,
     PurchaseStates.BLOCKED,
     PurchaseStates.CANCELLED,
   ],
@@ -47,6 +50,7 @@ const ALLOWED_TRANSITIONS = {
     PurchaseStates.MERCHANT_CONNECTION_REQUIRED,
     PurchaseStates.APPROVAL_REQUIRED,
     PurchaseStates.AWAITING_APPROVAL,
+    PurchaseStates.RECONCILIATION_REQUIRED,
     PurchaseStates.BLOCKED,
     PurchaseStates.CANCELLED,
   ],
@@ -55,6 +59,7 @@ const ALLOWED_TRANSITIONS = {
     PurchaseStates.PRODUCT_SELECTED,
     PurchaseStates.APPROVAL_REQUIRED,
     PurchaseStates.AWAITING_APPROVAL,
+    PurchaseStates.RECONCILIATION_REQUIRED,
     PurchaseStates.BLOCKED,
     PurchaseStates.CANCELLED,
   ],
@@ -64,6 +69,7 @@ const ALLOWED_TRANSITIONS = {
     PurchaseStates.APPROVAL_REQUIRED,
     PurchaseStates.AWAITING_APPROVAL,
     PurchaseStates.CART_CREATED,
+    PurchaseStates.RECONCILIATION_REQUIRED,
     PurchaseStates.BLOCKED,
     PurchaseStates.CANCELLED,
   ],
@@ -72,6 +78,7 @@ const ALLOWED_TRANSITIONS = {
     PurchaseStates.APPROVAL_REQUIRED,
     PurchaseStates.AWAITING_APPROVAL,
     PurchaseStates.CART_CREATED,
+    PurchaseStates.RECONCILIATION_REQUIRED,
     PurchaseStates.BLOCKED,
     PurchaseStates.CANCELLED,
   ],
@@ -80,6 +87,7 @@ const ALLOWED_TRANSITIONS = {
     PurchaseStates.USER_AUTHENTICATION_REQUIRED,
     PurchaseStates.APPROVAL_REQUIRED,
     PurchaseStates.AWAITING_APPROVAL,
+    PurchaseStates.RECONCILIATION_REQUIRED,
     PurchaseStates.BLOCKED,
     PurchaseStates.CANCELLED,
   ],
@@ -88,6 +96,7 @@ const ALLOWED_TRANSITIONS = {
     PurchaseStates.APPROVED,
     PurchaseStates.REJECTED,
     PurchaseStates.EXPIRED,
+    PurchaseStates.RECONCILIATION_REQUIRED,
     PurchaseStates.BLOCKED,
     PurchaseStates.CANCELLED,
   ],
@@ -95,6 +104,7 @@ const ALLOWED_TRANSITIONS = {
     PurchaseStates.APPROVED,
     PurchaseStates.REJECTED,
     PurchaseStates.EXPIRED,
+    PurchaseStates.RECONCILIATION_REQUIRED,
     PurchaseStates.BLOCKED,
     PurchaseStates.CANCELLED,
   ],
@@ -103,8 +113,11 @@ const ALLOWED_TRANSITIONS = {
     PurchaseStates.CHECKOUT_PENDING,
     PurchaseStates.PRICE_REVALIDATION,
     PurchaseStates.PAYMENT_PENDING,
+    PurchaseStates.PAYMENT_SUCCESS,
+    PurchaseStates.PAYMENT_FAILED,
     PurchaseStates.AWAITING_APPROVAL,
     PurchaseStates.APPROVAL_REQUIRED,
+    PurchaseStates.RECONCILIATION_REQUIRED,
     PurchaseStates.BLOCKED,
     PurchaseStates.CANCELLED,
   ],
@@ -120,8 +133,11 @@ const ALLOWED_TRANSITIONS = {
     PurchaseStates.CHECKOUT_PENDING,
     PurchaseStates.PRICE_REVALIDATION,
     PurchaseStates.PAYMENT_PENDING,
+    PurchaseStates.PAYMENT_SUCCESS,
+    PurchaseStates.PAYMENT_FAILED,
     PurchaseStates.APPROVAL_REQUIRED,
     PurchaseStates.AWAITING_APPROVAL,
+    PurchaseStates.RECONCILIATION_REQUIRED,
     PurchaseStates.BLOCKED,
     PurchaseStates.CANCELLED,
   ],
@@ -129,12 +145,14 @@ const ALLOWED_TRANSITIONS = {
     PurchaseStates.PRICE_REVALIDATION,
     PurchaseStates.PAYMENT_PENDING,
     PurchaseStates.USER_AUTHENTICATION_REQUIRED,
+    PurchaseStates.RECONCILIATION_REQUIRED,
     PurchaseStates.BLOCKED,
     PurchaseStates.CANCELLED,
   ],
   [PurchaseStates.PRICE_REVALIDATION]: [
     PurchaseStates.PAYMENT_PENDING,
     PurchaseStates.USER_AUTHENTICATION_REQUIRED,
+    PurchaseStates.RECONCILIATION_REQUIRED,
     PurchaseStates.BLOCKED,
     PurchaseStates.CANCELLED,
   ],
@@ -142,12 +160,14 @@ const ALLOWED_TRANSITIONS = {
     PurchaseStates.PAYMENT_SUCCESS,
     PurchaseStates.PAYMENT_FAILED,
     PurchaseStates.USER_AUTHENTICATION_REQUIRED,
+    PurchaseStates.RECONCILIATION_REQUIRED,
     PurchaseStates.CANCELLED,
   ],
   [PurchaseStates.USER_AUTHENTICATION_REQUIRED]: [
     PurchaseStates.PAYMENT_PENDING,
     PurchaseStates.PAYMENT_SUCCESS,
     PurchaseStates.PAYMENT_FAILED,
+    PurchaseStates.RECONCILIATION_REQUIRED,
     PurchaseStates.CANCELLED,
   ],
   [PurchaseStates.PAYMENT_SUCCESS]: [
@@ -167,6 +187,7 @@ const ALLOWED_TRANSITIONS = {
   ],
   [PurchaseStates.ORDER_CONFIRMED]: [
     PurchaseStates.COMPLETED,
+    PurchaseStates.RECONCILIATION_REQUIRED,
     PurchaseStates.REFUND_PENDING,
     PurchaseStates.CANCELLED,
   ],
@@ -220,22 +241,23 @@ export async function transitionPurchaseState(intentId, newState, context = {}) 
     };
   }
 
-  // Prevent regression from terminal or completed states
-  const terminalStates = [PurchaseStates.COMPLETED, PurchaseStates.CANCELLED, PurchaseStates.BLOCKED];
-  if (terminalStates.includes(currentState) && !ALLOWED_TRANSITIONS[currentState]?.includes(newState)) {
-    return {
-      intentId,
-      previousState: currentState,
-      currentState,
-      success: true,
-      isNoop: true,
-    };
-  }
+  // Normalize legacy or aliased state names
+  const stateAliases = {
+    'ALLOWED': PurchaseStates.CART_CREATED,
+    'allowed': PurchaseStates.CART_CREATED,
+    'pending': PurchaseStates.CREATED,
+    'PENDING': PurchaseStates.CREATED,
+  };
+  const effectiveCurrentState = stateAliases[currentState] || currentState;
 
   // Validate Transition
-  const allowed = ALLOWED_TRANSITIONS[currentState] || [];
+  const allowed = ALLOWED_TRANSITIONS[effectiveCurrentState] || [];
   if (!allowed.includes(newState)) {
-    console.warn(`[StateMachine] Invalid transition from ${currentState} to ${newState} on intent ${intentId}`);
+    const errorMsg = `Illegal state transition rejected: Cannot transition from ${currentState} to ${newState} on intent ${intentId}`;
+    console.error(`[StateMachine] ${errorMsg}`);
+    const err = new Error(errorMsg);
+    err.code = 'ILLEGAL_STATE_TRANSITION';
+    throw err;
   }
 
   // Map state to legacy status for backward compatibility
@@ -250,6 +272,8 @@ export async function transitionPurchaseState(intentId, newState, context = {}) 
   else if (newState === PurchaseStates.EXPIRED) statusMapping = 'cancelled';
   else if (newState === PurchaseStates.PAYMENT_PENDING) statusMapping = 'payment_pending';
   else if (newState === PurchaseStates.PAYMENT_SUCCESS) statusMapping = 'payment_completed';
+  else if (newState === PurchaseStates.PAYMENT_FAILED) statusMapping = 'payment_failed';
+  else if (newState === PurchaseStates.RECONCILIATION_REQUIRED) statusMapping = 'payment_pending';
 
   // Persist State
   await query(`

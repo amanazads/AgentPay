@@ -36,8 +36,7 @@ export async function findEligibleProducts(intent, { merchantId = null, userId =
     FROM products p
     JOIN merchants m ON p.merchant_id = m.id
     LEFT JOIN product_ai_metadata pam ON pam.product_id = p.id
-    WHERE p.in_stock = true 
-      AND (p.is_test_lab = false OR p.is_test_lab IS NULL)
+    WHERE (p.is_test_lab = false OR p.is_test_lab IS NULL)
       AND (p.commerce_eligible = true OR p.commerce_eligible IS NULL)
   `;
   const params = [];
@@ -76,24 +75,59 @@ export async function findEligibleProducts(intent, { merchantId = null, userId =
     const failedRules = [];
     const matchedRules = [];
     // RULE 0: Content Safety & Prompt Injection Check
-    const originalText = `${prod.name || ''} ${prod.description || ''}`;
+    const textParts = [
+      prod.name || '',
+      prod.description || '',
+      typeof prod.specifications === 'object' ? JSON.stringify(prod.specifications) : (prod.specifications || ''),
+      prod.reviews ? JSON.stringify(prod.reviews) : '',
+      prod.ai_summary || '',
+      prod.target_audience || '',
+      prod.use_cases ? JSON.stringify(prod.use_cases) : '',
+      prod.ai_keywords ? JSON.stringify(prod.ai_keywords) : '',
+    ];
+    const originalText = textParts.filter(Boolean).join(' ');
     const textToCheck = originalText.toLowerCase();
     const promptInjectionRegexes = [
-      /(?:ignore|disregard|forget|override|cancel|bypass)\s+(?:all\s+)?(?:(?:previous|prior|existing|above|system|developer|policy|spending)\s+)?(?:the\s+)?(?:rules|instructions|prompts|commands|constraints|limits|policies|policy)/i,
-      /(?:new\s+instructions?|system\s+override|priority\s+override|jailbreak|developer\s+mode)/i,
-      /\[(?:SYSTEM|DEVELOPER|ADMIN|ROOT)\]/i,
-      /<\|im_start\|>system/i,
-      /<<SYS>>|<SYS>/i,
-      /-{2,}\s*BEGIN\s+(?:SYSTEM|ADMIN)\s+(?:MESSAGE|INSTRUCTION)\s*-{2,}/i,
-      /###\s*System:/i,
+      // 1. Instruction Overrides, Jailbreaks & Role Escalation
+      /(?:ignore|disregard|forget|override|cancel|bypass)\s+(?:all\s+)?(?:(?:previous|prior|existing|above|system|developer|policy|spending|buyer'?s?|user'?s?)\s+)?(?:the\s+)?(?:rules|instructions|prompts|commands|constraints|limits|policies|policy|budget|guidelines)/i,
+      /(?:new\s+instructions?|system\s+override|priority\s+override|jailbreak|developer\s+mode|god\s+mode)/i,
+      /\[(?:SYSTEM|DEVELOPER|ADMIN|ROOT|ASSISTANT|INSTRUCTION)\]/i,
+      /<\|im_start\|>(?:system|developer|admin)?/i,
+      /<<SYS>>|<SYS>|<\/SYS>|<<\/SYS>>/i,
+      /-{2,}\s*BEGIN\s+(?:SYSTEM|ADMIN|DEVELOPER)\s+(?:MESSAGE|INSTRUCTION)\s*-{2,}/i,
+      /###\s*(?:System|Developer|Admin|Instruction):/i,
+      /(?:system\s*:\s*you\s+are|developer\s*:\s*instruction|admin\s*:\s*execute)/i,
+
+      // 2. Fake Admin Commands, Approvals & Policy Overrides
       /(?:admin\s+(?:command|mode|privilege|override)|sudo\s+(?:approve|authorize|execute|buy|grant)|grant\s+(?:admin|root|permission|authorization)|root\s+(?:access|privilege))/i,
-      /(?:set_approval\s*=\s*(?:auto|true|allow|bypass)|auto_approve\s*=\s*true)/i,
+      /(?:set_approval\s*=\s*(?:auto|true|allow|bypass)|auto_approve\s*=\s*true|force_approve\s*=\s*true)/i,
+      /(?:override|bypass|ignore)\s+(?:policy|policies|rules?)\s+(?:and\s+)?(?:approve|allow|authorize|grant)/i,
+      /(?:approve|authorize|allow)\s+(?:this\s+)?(?:transaction|order|purchase|intent)\s*(?:automatically|without\s+checks?|now)?/i,
+      /priority\s+executive\s+(?:order|approval|override)/i,
+      /transfer\s+funds/i,
+      
+      // 3. Spending Limit, Budget & Quantity Manipulation Directives
       /bypass\s+(?:spending|budget|purchasing)\s*(?:limits?|polic(?:y|ies)|rules?)?/i,
       /override\s+(?:spending|budget|limits?)/i,
       /(?:set\s+limit\s*(?:to|=)\s*(?:unlimited|\d{7,})|no\s+spending\s+limit)/i,
       /max_budget\s*=\s*(?:unlimited|[\d,]{7,})/i,
-      /(?:set|increase|override)\s+quantity\s*(?:to|=)\s*\d+/i,
-      /(?:buy|order)\s+\d{3,}\s+units/i,
+      /(?:ignore|disregard|override)\s+(?:the\s+)?(?:buyer'?s?|user'?s?)?\s*budget/i,
+      /(?:set|increase|override|change)\s+quantity\s*(?:to|=)\s*\d+/i,
+      /(?:buy|order|purchase|get)\s+\d{2,}\s+(?:units|items|pcs|pieces|laptops|phones|chairs)/i,
+      
+      // 4. Price Manipulation & Spoofed Amount Directives
+      /(?:use|set|charge|pay|enter)\s+(?:₹|rs\.?|inr)?\s*\d+(?:\.\d+)?\s+(?:instead|as\s+price|rather\s+than)\b/i,
+      /(?:use|pay|charge|set)\s+.*?instead\s+of\s+(?:the\s+)?(?:real|actual|catalog|official|original)\s+price/i,
+      /(?:fake|spoofed|manipulated|override|discounted)\s+price\s*(?:to|=|\:)?\s*(?:₹|rs\.?|inr)?\s*\d+/i,
+      /price\s*=\s*(?:₹|rs\.?|inr)?\s*0(?:\.00)?\b/i,
+      
+      // 5. System Instructions Exfiltration & Prompt Revelation Directives
+      /(?:reveal|show|display|print|output|leak|disclose|expose|tell\s+me|repeat|what\s+are)\s+(?:the\s+)?(?:system|developer|hidden|internal|initial|agent)?\s*(?:instructions?|prompts?|rules?|guidelines?|config|context|secrets?)/i,
+      /(?:what\s+is\s+your\s+(?:system\s+prompt|prompt|instructions?))/i,
+      
+      // 6. Inventory & Stock Restriction Bypass Directives
+      /(?:ignore|bypass|override|disregard)\s+(?:all\s+)?(?:inventory|stock|quantity|out\s+of\s+stock)\s*(?:restrictions?|limits?|checks?|rules?)?/i,
+      /(?:force_in_stock|infinite_stock|bypass_inventory)\s*=\s*true/i,
     ];
 
     let hasInjection = promptInjectionRegexes.some((rx) => rx.test(textToCheck));
@@ -115,6 +149,16 @@ export async function findEligibleProducts(intent, { merchantId = null, userId =
         rule: 'SECURITY_THREAT_DETECTED',
         reason: 'Adversarial prompt injection pattern detected in untrusted product catalog content.',
       });
+    }
+
+    // RULE 0b: Stock & Inventory Check
+    if (!prod.in_stock || prod.inventory <= 0) {
+      failedRules.push({
+        rule: 'OUT_OF_STOCK',
+        reason: `Product '${prod.name}' is currently out of stock (${prod.inventory || 0} available).`,
+      });
+    } else {
+      matchedRules.push(`In stock (${prod.inventory} units available)`);
     }
 
     // RULE 1: Buyer Permitted Category (Hard Policy Boundary)
@@ -157,6 +201,8 @@ export async function findEligibleProducts(intent, { merchantId = null, userId =
 
       if (productType === 'power_bank') {
         isTypeMatch = pType === 'power_bank' || pName.includes('power bank') || pName.includes('powerbank') || pName.includes('powercore');
+      } else if (productType === 'charger') {
+        isTypeMatch = pType === 'charger' || pName.includes('charger') || pName.includes('powerport') || pName.includes('adapter');
       } else if (productType === 'headphones') {
         isTypeMatch = pType === 'headphones' || pName.includes('headphone') || pName.includes('earbuds') || pName.includes('wh-1000xm5') || pName.includes('quietcomfort') || pName.includes('accentum');
       } else if (productType === 'laptop') {
@@ -191,24 +237,27 @@ export async function findEligibleProducts(intent, { merchantId = null, userId =
       }
     } else if (rawQuery && rawQuery.trim().length > 0) {
       // If no category/type was detected, treat the raw query as a specific item search
-      const stopWords = new Set(['buy', 'order', 'purchase', 'find', 'get', 'the', 'me', 'a', 'an', 'for', 'with', 'and', 'under', 'below', 'in', 'of', 'to', 'is', 'best', 'top', 'new', 'item', 'product']);
-      const queryTokens = rawQuery.toLowerCase().split(/\s+/).map((w) => w.replace(/[^a-z0-9]/g, '')).filter((w) => w.length > 2 && !stopWords.has(w));
+      const stopWords = new Set(['buy', 'order', 'purchase', 'find', 'get', 'the', 'me', 'a', 'an', 'for', 'with', 'and', 'under', 'below', 'in', 'of', 'to', 'is', 'best', 'top', 'new', 'item', 'product', 'each', 'units', 'pieces']);
+      const queryTokens = rawQuery.toLowerCase().split(/\s+/).map((w) => w.replace(/[^a-z0-9-]/g, '')).filter((w) => w.length > 2 && !stopWords.has(w));
       if (queryTokens.length > 0) {
-        const pName = prod.name.toLowerCase();
+        const pName = (prod.name || '').toLowerCase();
         const pBrand = (prod.brand || '').toLowerCase();
         const pCat = (prod.category || '').toLowerCase();
         const pDesc = (prod.description || '').toLowerCase();
         const pKeywords = Array.isArray(prod.ai_keywords) ? prod.ai_keywords.map((k) => k.toLowerCase()) : [];
 
-        const hasMatch = queryTokens.some((tok) =>
+        const matchingTokens = queryTokens.filter((tok) =>
           pName.includes(tok) || pBrand.includes(tok) || pCat.includes(tok) || pDesc.includes(tok) || pKeywords.includes(tok)
         );
 
-        if (!hasMatch) {
+        const matchRatio = matchingTokens.length / queryTokens.length;
+        if (matchRatio < 0.6) {
           failedRules.push({
             rule: 'PRODUCT_QUERY_MISMATCH',
             reason: `Product '${prod.name}' does not match query keywords (${queryTokens.join(', ')}).`,
           });
+        } else {
+          matchedRules.push(`Matches query keywords (${matchingTokens.join(', ')})`);
         }
       }
     }
@@ -221,8 +270,11 @@ export async function findEligibleProducts(intent, { merchantId = null, userId =
 
       if (prod.specifications?.capacity_mah) {
         actualCap = parseInt(prod.specifications.capacity_mah);
+      } else if (prod.specifications?.capacity) {
+        const m = prod.specifications.capacity.toString().match(/(\d{4,6})/);
+        if (m) actualCap = parseInt(m[1]);
       } else {
-        const nameCapMatch = prod.name.match(/(\d{4,6})\s*mah/i);
+        const nameCapMatch = `${prod.name || ''} ${prod.description || ''}`.match(/(\d{4,6})\s*mah/i);
         if (nameCapMatch) actualCap = parseInt(nameCapMatch[1]);
       }
 
@@ -336,6 +388,64 @@ export async function findEligibleProducts(intent, { merchantId = null, userId =
       });
     }
 
+    // 4h. Specific Model / Product Name Constraint
+    if (hardConstraints.requiredModelTerms && hardConstraints.requiredModelTerms.length > 0) {
+      const pSearchable = `${prod.name || ''} ${prod.brand || ''} ${prod.description || ''}`.toLowerCase();
+      const missingTerms = hardConstraints.requiredModelTerms.filter((term) => {
+        const termRegex = new RegExp(`(^|[^a-z0-9])${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9]|$)`, 'i');
+        return !termRegex.test(pSearchable) && !pSearchable.includes(term);
+      });
+
+      if (missingTerms.length > 0) {
+        failedRules.push({
+          rule: 'MODEL_MISMATCH',
+          reason: `Requested specific model '${hardConstraints.requiredModelPhrase || hardConstraints.requiredModelTerms.join(' ')}', but product '${prod.name}' does not match required terms (missing: ${missingTerms.join(', ')}).`,
+        });
+      } else {
+        matchedRules.push(`Verified specific model '${hardConstraints.requiredModelPhrase || hardConstraints.requiredModelTerms.join(' ')}' match`);
+      }
+    }
+
+    // 4i. Mandatory Wattage Constraint
+    if (hardConstraints.requiredWattageW) {
+      const reqW = hardConstraints.requiredWattageW;
+      let actualW = null;
+      if (prod.specifications?.wattage_w) {
+        actualW = parseInt(prod.specifications.wattage_w, 10);
+      } else if (prod.specifications?.power) {
+        const m = String(prod.specifications.power).match(/(\d{2,3})\s*w/i);
+        if (m) actualW = parseInt(m[1], 10);
+      } else if (prod.attributes?.output_watts) {
+        actualW = parseInt(prod.attributes.output_watts, 10);
+      } else {
+        const m = `${prod.name || ''} ${prod.description || ''}`.match(/(\d{2,3})\s*w\b/i);
+        if (m) actualW = parseInt(m[1], 10);
+      }
+
+      if (!actualW || actualW < reqW) {
+        failedRules.push({
+          rule: 'WATTAGE_UNMET',
+          reason: `Product output (${actualW ? `${actualW}W` : 'unknown'}) does not meet required >= ${reqW}W.`,
+        });
+      } else {
+        matchedRules.push(`Power output verified (>= ${reqW}W)`);
+      }
+    }
+
+    // 4j. GaN Technology Constraint
+    if (hardConstraints.requiredGan) {
+      const pSearchable = `${prod.name || ''} ${prod.description || ''} ${JSON.stringify(prod.specifications || {})}`.toLowerCase();
+      const hasGan = pSearchable.includes('gan') || pSearchable.includes('gallium nitride');
+      if (!hasGan) {
+        failedRules.push({
+          rule: 'GAN_NOT_SUPPORTED',
+          reason: 'GaN (Gallium Nitride) technology is explicitly required but not supported by this product.',
+        });
+      } else {
+        matchedRules.push('GaN technology verified');
+      }
+    }
+
     // Eligibility Classification & Ranking Score Calculation
     if (failedRules.length === 0) {
       let matchScore = 70;
@@ -383,6 +493,9 @@ export async function findEligibleProducts(intent, { merchantId = null, userId =
   eligibleCandidates.sort((a, b) => b.matchScore - a.matchScore || a.price - b.price);
 
   if (eligibleCandidates.length === 0) {
+    // Sort rejected candidates by fewest failed rules to surface relevant near-misses
+    rejectedCandidates.sort((a, b) => a.failedRules.length - b.failedRules.length);
+
     return {
       status: 'NO_MATCH',
       count: 0,
@@ -395,6 +508,7 @@ export async function findEligibleProducts(intent, { merchantId = null, userId =
       rejectionReasons: rejectedCandidates.slice(0, 5).map((r) => `${r.name}: ${r.failedRules.map((f) => f.reason).join(' ')}`),
       explanation: `No in-stock product satisfied all mandatory requirements (${[
         productType ? `Type: ${productType}` : null,
+        hardConstraints.requiredModelPhrase ? `Model: ${hardConstraints.requiredModelPhrase}` : null,
         maxPrice ? `Under ₹${maxPrice.toLocaleString('en-IN')}` : null,
         hardConstraints.requiredCapacityMah ? `>= ${hardConstraints.requiredCapacityMah}mAh` : null,
         hardConstraints.requiredRamGb ? `>= ${hardConstraints.requiredRamGb}GB RAM` : null,
@@ -408,7 +522,7 @@ export async function findEligibleProducts(intent, { merchantId = null, userId =
     count: eligibleCandidates.length,
     totalEvaluated: allProducts.length,
     candidates: eligibleCandidates.slice(0, limit),
-    eligibleCandidates: eligibleCandidates.slice(0, limit),
+    eligibleCandidates: eligibleCandidates,
     rejectedCandidates,
     winningCandidate: eligibleCandidates[0],
     topCandidate: eligibleCandidates[0],

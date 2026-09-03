@@ -50,12 +50,96 @@ export async function validatePurchaseCandidate(candidate, intent, { userSpendin
     );
   }
 
+  // 3b. Catalog Active Status Check
+  if (dbProd.status === 'ARCHIVED' || dbProd.status === 'PAUSED') {
+    throw new PurchaseValidationError(
+      'PRODUCT_INACTIVE',
+      `Product '${dbProd.name}' is currently ${dbProd.status.toLowerCase()} and cannot be purchased.`
+    );
+  }
+
+  // 3c. Content Threat & Prompt Injection Check
+  const textParts = [
+    dbProd.name || '',
+    dbProd.description || '',
+    typeof dbProd.specifications === 'object' ? JSON.stringify(dbProd.specifications) : (dbProd.specifications || ''),
+    dbProd.reviews ? JSON.stringify(dbProd.reviews) : '',
+  ];
+  const textToCheck = textParts.filter(Boolean).join(' ').toLowerCase();
+  const promptInjectionRegexes = [
+    /(?:ignore|disregard|forget|override|cancel|bypass)\s+(?:all\s+)?(?:(?:previous|prior|existing|above|system|developer|policy|spending|buyer'?s?|user'?s?)\s+)?(?:the\s+)?(?:rules|instructions|prompts|commands|constraints|limits|policies|policy|budget|guidelines)/i,
+    /(?:new\s+instructions?|system\s+override|priority\s+override|jailbreak|developer\s+mode|god\s+mode)/i,
+    /\[(?:SYSTEM|DEVELOPER|ADMIN|ROOT|ASSISTANT|INSTRUCTION)\]/i,
+    /<\|im_start\|>(?:system|developer|admin)?/i,
+    /<<SYS>>|<SYS>|<\/SYS>|<<\/SYS>>/i,
+    /-{2,}\s*BEGIN\s+(?:SYSTEM|ADMIN|DEVELOPER)\s+(?:MESSAGE|INSTRUCTION)\s*-{2,}/i,
+    /###\s*(?:System|Developer|Admin|Instruction):/i,
+    /(?:system\s*:\s*you\s+are|developer\s*:\s*instruction|admin\s*:\s*execute)/i,
+    /(?:admin\s+(?:command|mode|privilege|override)|sudo\s+(?:approve|authorize|execute|buy|grant)|grant\s+(?:admin|root|permission|authorization)|root\s+(?:access|privilege))/i,
+    /(?:set_approval\s*=\s*(?:auto|true|allow|bypass)|auto_approve\s*=\s*true|force_approve\s*=\s*true)/i,
+    /(?:override|bypass|ignore)\s+(?:policy|policies|rules?)\s+(?:and\s+)?(?:approve|allow|authorize|grant)/i,
+    /(?:approve|authorize|allow)\s+(?:this\s+)?(?:transaction|order|purchase|intent)\s*(?:automatically|without\s+checks?|now)?/i,
+    /priority\s+executive\s+(?:order|approval|override)/i,
+    /transfer\s+funds/i,
+    /bypass\s+(?:spending|budget|purchasing)\s*(?:limits?|polic(?:y|ies)|rules?)?/i,
+    /override\s+(?:spending|budget|limits?)/i,
+    /(?:set\s+limit\s*(?:to|=)\s*(?:unlimited|\d{7,})|no\s+spending\s+limit)/i,
+    /max_budget\s*=\s*(?:unlimited|[\d,]{7,})/i,
+    /(?:ignore|disregard|override)\s+(?:the\s+)?(?:buyer'?s?|user'?s?)?\s*budget/i,
+    /(?:set|increase|override|change)\s+quantity\s*(?:to|=)\s*\d+/i,
+    /(?:buy|order|purchase|get)\s+\d{2,}\s+(?:units|items|pcs|pieces|laptops|phones|chairs)/i,
+    /(?:use|set|charge|pay|enter)\s+(?:₹|rs\.?|inr)?\s*\d+(?:\.\d+)?\s+(?:instead|as\s+price|rather\s+than)\b/i,
+    /(?:use|pay|charge|set)\s+.*?instead\s+of\s+(?:the\s+)?(?:real|actual|catalog|official|original)\s+price/i,
+    /(?:fake|spoofed|manipulated|override|discounted)\s+price\s*(?:to|=|\:)?\s*(?:₹|rs\.?|inr)?\s*\d+/i,
+    /price\s*=\s*(?:₹|rs\.?|inr)?\s*0(?:\.00)?\b/i,
+    /(?:reveal|show|display|print|output|leak|disclose|expose|tell\s+me|repeat|what\s+are)\s+(?:the\s+)?(?:system|developer|hidden|internal|initial|agent)?\s*(?:instructions?|prompts?|rules?|guidelines?|config|context|secrets?)/i,
+    /(?:what\s+is\s+your\s+(?:system\s+prompt|prompt|instructions?))/i,
+    /(?:ignore|bypass|override|disregard)\s+(?:all\s+)?(?:inventory|stock|quantity|out\s+of\s+stock)\s*(?:restrictions?|limits?|checks?|rules?)?/i,
+    /(?:force_in_stock|infinite_stock|bypass_inventory)\s*=\s*true/i,
+  ];
+
+  if (promptInjectionRegexes.some((rx) => rx.test(textToCheck))) {
+    throw new PurchaseValidationError(
+      'SECURITY_THREAT_DETECTED',
+      'Adversarial prompt injection pattern detected in untrusted product catalog content.'
+    );
+  }
+
   // 4. Stock & Inventory Check
+  const requestedQty = Math.max(1, parseInt(intent?.quantity || candidate.quantity || 1, 10));
   if (!dbProd.in_stock || inventory <= 0) {
     throw new PurchaseValidationError(
       'OUT_OF_STOCK',
       `Product '${dbProd.name}' is currently out of stock (${inventory} available).`
     );
+  }
+  if (inventory < requestedQty) {
+    throw new PurchaseValidationError(
+      'INSUFFICIENT_INVENTORY',
+      `Insufficient inventory for product '${dbProd.name}' (${inventory} available, ${requestedQty} requested).`
+    );
+  }
+
+  // 4b. Anti-Fabrication Attribute Verification
+  if (candidate.name) {
+    const cleanCandName = candidate.name.replace(/^\d+x\s+/i, '').trim().toLowerCase();
+    const cleanDbName = dbProd.name.trim().toLowerCase();
+    if (cleanCandName !== cleanDbName && !cleanDbName.includes(cleanCandName) && !cleanCandName.includes(cleanDbName)) {
+      throw new PurchaseValidationError(
+        'FABRICATED_PRODUCT_NAME',
+        `Proposed product name '${candidate.name}' does not match authoritative catalog name '${dbProd.name}'.`
+      );
+    }
+  }
+
+  if (candidate.unit_price !== undefined || (candidate.price !== undefined && (!intent?.quantity || intent.quantity === 1))) {
+    const proposedPrice = parseFloat(candidate.unit_price ?? candidate.price);
+    if (!isNaN(proposedPrice) && Math.abs(proposedPrice - price) > 0.01 && !candidate.quote_id) {
+      throw new PurchaseValidationError(
+        'FABRICATED_PRICE',
+        `Proposed price (₹${proposedPrice}) diverges from authoritative catalog price (₹${price}).`
+      );
+    }
   }
 
   // 5. Price Ceiling Validation
@@ -81,6 +165,8 @@ export async function validatePurchaseCandidate(candidate, intent, { userSpendin
     let matchesType = false;
     if (intent.productType === 'power_bank') {
       matchesType = pType === 'power_bank' || pName.includes('power bank') || pName.includes('powerbank') || pName.includes('powercore');
+    } else if (intent.productType === 'charger') {
+      matchesType = pType === 'charger' || pName.includes('charger') || pName.includes('powerport') || pName.includes('adapter');
     } else if (intent.productType === 'headphones') {
       matchesType = pType === 'headphones' || pName.includes('headphone') || pName.includes('wh-1000xm5') || pName.includes('quietcomfort');
     } else if (intent.productType === 'laptop') {
@@ -117,6 +203,58 @@ export async function validatePurchaseCandidate(candidate, intent, { userSpendin
       throw new PurchaseValidationError(
         'SPECIFICATION_UNMET',
         `Product battery capacity (${actualCap ? `${actualCap}mAh` : 'unknown'}) does not meet required >= ${reqCap}mAh.`
+      );
+    }
+  }
+
+  // 8. Wattage Constraint
+  if (intent?.hardConstraints?.requiredWattageW) {
+    const reqW = intent.hardConstraints.requiredWattageW;
+    const specs = typeof dbProd.specifications === 'object' ? dbProd.specifications : {};
+    let actualW = null;
+    if (specs.wattage_w) actualW = parseInt(specs.wattage_w, 10);
+    else if (specs.power) {
+      const m = String(specs.power).match(/(\d{2,3})\s*w/i);
+      if (m) actualW = parseInt(m[1], 10);
+    } else if (dbProd.attributes?.output_watts) {
+      actualW = parseInt(dbProd.attributes.output_watts, 10);
+    } else {
+      const m = `${dbProd.name || ''} ${dbProd.description || ''}`.match(/(\d{2,3})\s*w\b/i);
+      if (m) actualW = parseInt(m[1], 10);
+    }
+
+    if (!actualW || actualW < reqW) {
+      throw new PurchaseValidationError(
+        'SPECIFICATION_UNMET',
+        `Product wattage (${actualW ? `${actualW}W` : 'unknown'}) does not meet required >= ${reqW}W.`
+      );
+    }
+  }
+
+  // 9. GaN Technology Constraint
+  if (intent?.hardConstraints?.requiredGan) {
+    const pSearchable = `${dbProd.name || ''} ${dbProd.description || ''} ${JSON.stringify(dbProd.specifications || {})}`.toLowerCase();
+    const hasGan = pSearchable.includes('gan') || pSearchable.includes('gallium nitride');
+    if (!hasGan) {
+      throw new PurchaseValidationError(
+        'SPECIFICATION_UNMET',
+        'GaN (Gallium Nitride) technology is explicitly required but not supported by this product.'
+      );
+    }
+  }
+
+  // 10. Specific Model / Identifier Check
+  if (intent?.hardConstraints?.requiredModelTerms && intent.hardConstraints.requiredModelTerms.length > 0) {
+    const pSearchable = `${dbProd.name || ''} ${dbProd.brand || ''} ${dbProd.description || ''}`.toLowerCase();
+    const missingTerms = intent.hardConstraints.requiredModelTerms.filter((term) => {
+      const termRegex = new RegExp(`(^|[^a-z0-9])${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9]|$)`, 'i');
+      return !termRegex.test(pSearchable) && !pSearchable.includes(term);
+    });
+
+    if (missingTerms.length > 0) {
+      throw new PurchaseValidationError(
+        'MODEL_MISMATCH',
+        `Product '${dbProd.name}' does not match requested model '${intent.hardConstraints.requiredModelPhrase || intent.hardConstraints.requiredModelTerms.join(' ')}' (missing: ${missingTerms.join(', ')}).`
       );
     }
   }

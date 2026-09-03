@@ -8,6 +8,10 @@ const PRODUCT_TYPE_TAXONOMY = {
     keywords: ['power bank', 'powerbank', 'portable charger', 'battery pack', 'powercore', 'external battery'],
     category: 'Electronics',
   },
+  charger: {
+    keywords: ['charger', 'gan charger', 'wall charger', 'fast charger', 'powerport', 'adapter', 'charging adapter', 'power adapter'],
+    category: 'Electronics',
+  },
   headphones: {
     keywords: ['headphone', 'headphones', 'earphones', 'earbuds', 'airpods', 'wh-1000xm5', 'quietcomfort', 'accentum', 'headset'],
     category: 'Electronics',
@@ -166,6 +170,17 @@ export function parseBuyerIntent(queryText) {
     hardConstraints.requiredWireless = true;
   }
 
+  // Wattage (e.g. "65W", "100W charger", "140W")
+  const wattMatch = lower.match(/(\d{2,3})\s*w(?:atts?)?\b/i);
+  if (wattMatch) {
+    hardConstraints.requiredWattageW = parseInt(wattMatch[1], 10);
+  }
+
+  // GaN (Gallium Nitride) technology requirement
+  if (/\bgan\b/i.test(lower) || lower.includes('gallium nitride')) {
+    hardConstraints.requiredGan = true;
+  }
+
   // Brand Match
   for (const b of KNOWN_BRANDS) {
     const escapedBrand = b.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -174,6 +189,13 @@ export function parseBuyerIntent(queryText) {
       hardConstraints.requiredBrand = b;
       break;
     }
+  }
+
+  // Model / Specific Product Terms Extraction
+  const modelTerms = extractSpecificModelTerms(text, hardConstraints.requiredBrand);
+  if (modelTerms && modelTerms.length > 0) {
+    hardConstraints.requiredModelTerms = modelTerms;
+    hardConstraints.requiredModelPhrase = modelTerms.join(' ');
   }
 
   // 5. Soft Preferences
@@ -193,4 +215,73 @@ export function parseBuyerIntent(queryText) {
     hardConstraints,
     softPreferences,
   };
+}
+
+export function extractSpecificModelTerms(queryText, detectedBrand = null) {
+  if (!queryText || typeof queryText !== 'string') return null;
+  let text = queryText.toLowerCase();
+
+  // 1. Remove price clauses
+  text = text.replace(/(?:under|below|less than|budget|max|up to|for|worth|price of|around|within|rupees|rs\.?|inr)?\s*(?:₹|rs\.?|inr|rupees)\s*[\d,]+(?:k)?/gi, ' ');
+  text = text.replace(/(?:under|below|less than|budget|max|up to|worth|price of|around|within)\s*[\d,]+(?:k)?/gi, ' ');
+  text = text.replace(/\b\d+\s*(?:inr|rs|rupees|bucks)\b/gi, ' ');
+
+  // 2. Remove quantity expressions
+  text = text.replace(/(?:order|buy|purchase|get|find|procure)\s+\d+\s+/gi, ' ');
+  text = text.replace(/\b\d+\s*(?:units?|items?|pieces?|pcs|each)\b/gi, ' ');
+
+  // 3. Remove known spec patterns
+  text = text.replace(/\d[\d,]{3,7}\s*(?:mah|milliamp)\b/gi, ' ');
+  text = text.replace(/\d+(?:\.\d+)?\s*w(?:atts?)?\b/gi, ' ');
+  text = text.replace(/\d{1,3}\s*(?:gb|tb)\s*(?:ram|ssd|memory|storage|nvme)?\b/gi, ' ');
+  text = text.replace(/\b(?:4k|uhd|fhd|qhd|anc|wireless|bluetooth|ergonomic|dpi|hz|gan)\b/gi, ' ');
+  text = text.replace(/fast[\s-]charg(?:e|ing)?/gi, ' ');
+  text = text.replace(/noise[\s-]cancell?(?:ing|ation)?/gi, ' ');
+
+  // 4. Remove common action, filler words and generic technical descriptors
+  const fillers = [
+    'buy', 'order', 'purchase', 'get', 'find', 'procure', 'acquire', 'need', 'want',
+    'looking', 'search', 'the', 'a', 'an', 'me', 'best', 'top', 'good', 'new', 'latest',
+    'with', 'for', 'and', 'or', 'in', 'of', 'to', 'please', 'from', 'any', 'cheap',
+    'cheapest', 'affordable', 'our', 'team', 'design', 'software', 'development', 'office',
+    'each', 'per', 'unit', 'item', 'product', 'battery', 'batteries', 'cell', 'cells',
+    'charger', 'chargers', 'charging', 'pack', 'packs', 'backup', 'power',
+    'enterprise', 'workstation', 'corporate', 'business', 'personal', 'home',
+    'device', 'equipment', 'hardware', 'gadget', 'series', 'edition', 'version',
+    'inr', 'rs', 'rupees', 'model', 'specs', 'specifications'
+  ];
+  for (const f of fillers) {
+    text = text.replace(new RegExp(`\\b${f}\\b`, 'gi'), ' ');
+  }
+
+  // 5. Remove generic category words (do NOT remove model identifiers like mx master, aeron, macbook, etc.)
+  const genericCategoryWords = [
+    'power bank', 'powerbank', 'portable charger', 'battery pack', 'external battery',
+    'charger', 'wall charger', 'fast charger', 'power adapter', 'charging adapter', 'adapter',
+    'headphones', 'headphone', 'earphones', 'earbuds', 'headset',
+    'laptop', 'notebook', 'ultrabook', 'computer',
+    'monitor', 'display', 'screen',
+    'mouse', 'trackpad',
+    'keyboard',
+    'chair', 'chairs', 'desk chair', 'office chair', 'seating',
+    'desk', 'standing desk', 'workstation', 'table',
+    'phone', 'smartphone',
+    'dock', 'docking station', 'hub'
+  ];
+  for (const c of genericCategoryWords) {
+    text = text.replace(new RegExp(`\\b${c}\\b`, 'gi'), ' ');
+  }
+
+  // 6. Remove brand if known
+  if (detectedBrand) {
+    text = text.replace(new RegExp(`\\b${detectedBrand.toLowerCase()}\\b`, 'gi'), ' ');
+  }
+
+  const tokens = text
+    .trim()
+    .split(/\s+/)
+    .map((t) => t.replace(/[^a-z0-9-]/g, ''))
+    .filter((t) => t.length >= 2 && !fillers.includes(t));
+
+  return tokens.length > 0 ? tokens : null;
 }

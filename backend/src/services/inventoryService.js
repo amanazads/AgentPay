@@ -66,7 +66,50 @@ export async function reserveInventory({
       throw new Error(`Insufficient inventory: ${reqQty} requested, but only ${Math.max(0, currentAvailable)} units available`);
     }
 
-    // 4. Create durable reservation with quote link
+    // 4. Create durable reservation with quote link (Idempotent for existing quoteId)
+    let reservation;
+    if (quoteId) {
+      const existingRes = await client.query(`
+        SELECT * FROM inventory_reservations
+        WHERE quote_id = $1
+        FOR UPDATE
+      `, [quoteId]);
+
+      if (existingRes.rows.length > 0) {
+        const existing = existingRes.rows[0];
+        if (existing.status === InventoryStates.RESERVED && new Date(existing.expires_at) > new Date()) {
+          await client.query('COMMIT');
+          return {
+            reservationId: existing.id,
+            quoteId: existing.quote_id,
+            productId: existing.product_id,
+            quantity: existing.quantity,
+            status: existing.status,
+            availableRemaining: currentAvailable,
+            expiresAt: existing.expires_at,
+          };
+        }
+        // If expired or released, update it to active RESERVED
+        const updatedRes = await client.query(`
+          UPDATE inventory_reservations
+          SET quantity = $2, status = 'RESERVED', expires_at = $3, updated_at = NOW()
+          WHERE quote_id = $1
+          RETURNING *
+        `, [quoteId, reqQty, expiresAt]);
+        await client.query('COMMIT');
+        reservation = updatedRes.rows[0];
+        return {
+          reservationId: reservation.id,
+          quoteId: reservation.quote_id,
+          productId: reservation.product_id,
+          quantity: reservation.quantity,
+          status: reservation.status,
+          availableRemaining: currentAvailable - reqQty,
+          expiresAt,
+        };
+      }
+    }
+
     const res = await client.query(`
       INSERT INTO inventory_reservations (
         product_id, quantity, user_id, quote_id, status, expires_at
@@ -77,7 +120,7 @@ export async function reserveInventory({
 
     await client.query('COMMIT');
 
-    const reservation = res.rows[0];
+    reservation = res.rows[0];
     logger.info('Inventory', `Reserved ${reqQty} units of ${product.name} (Quote: ${quoteId || reservation.id}) until ${expiresAt}`);
 
     return {

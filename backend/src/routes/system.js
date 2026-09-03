@@ -4,6 +4,7 @@ import env from '../config/env.js';
 import { getRedisClient } from '../config/redis.js';
 import { recordAuditEvent } from '../services/auditService.js';
 import { evaluateSystemReadiness } from '../services/systemReadinessService.js';
+import { reconcileOrders } from '../services/reconciliationService.js';
 import { requireAdmin, requireAuth } from '../middleware/authMiddleware.js';
 
 const router = Router();
@@ -179,6 +180,14 @@ router.post('/reconcile-orders', requireAuth, requireAdmin, async (req, res, nex
  * GET /api/system/reconciliation-report
  * Get latest reconciliation diagnostics without mutations
  */
+router.get('/reconciliation-report', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const report = await reconcileOrders({ autoHeal: false });
+    res.json(report);
+  } catch (err) {
+    next(err);
+  }
+});
 /**
  * POST /api/system/reset-demo & /judge-reset
  * Reset demonstration ledger to pristine state for live technical evaluation

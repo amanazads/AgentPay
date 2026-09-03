@@ -8,9 +8,9 @@ const isTest = process.env.NODE_ENV === 'test' || env.NODE_ENV === 'test';
 function createPoolInstance() {
   const p = new Pool({
     connectionString: env.DATABASE_URL,
-    max: isTest ? 10 : 20,
-    idleTimeoutMillis: isTest ? 1000 : 30000,
-    connectionTimeoutMillis: 5000,
+    max: isTest ? 25 : 20,
+    idleTimeoutMillis: isTest ? 2000 : 30000,
+    connectionTimeoutMillis: 10000,
   });
 
   p.on('error', (err) => {

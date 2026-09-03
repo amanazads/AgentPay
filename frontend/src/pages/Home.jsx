@@ -637,10 +637,10 @@ export default function Home() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
                 {(selectedOrderDetail.timeline || selectedOrderDetail.order_timeline || [
                   { state: 'CONFIRMED', title: 'Order Confirmed & Payment Verified', completed: true },
-                  { state: 'PROCESSING', title: 'Merchant Processing', completed: ['PROCESSING', 'PACKED', 'SHIPPED', 'DELIVERED'].includes(selectedOrderDetail.fulfillment_status) },
-                  { state: 'PACKED', title: 'Package Assembly', completed: ['PACKED', 'SHIPPED', 'DELIVERED'].includes(selectedOrderDetail.fulfillment_status) },
-                  { state: 'SHIPPED', title: 'In Transit with Carrier', completed: ['SHIPPED', 'DELIVERED'].includes(selectedOrderDetail.fulfillment_status) },
-                  { state: 'DELIVERED', title: 'Delivered', completed: selectedOrderDetail.fulfillment_status === 'DELIVERED' },
+                  { state: 'PROCESSING', title: 'Merchant Processing', completed: ['PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(selectedOrderDetail.fulfillment_status) },
+                  { state: 'PACKED', title: 'Package Assembly', completed: ['PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(selectedOrderDetail.fulfillment_status) },
+                  { state: 'SHIPPED', title: 'Dispatched to Carrier (Simulated Transit)', completed: ['SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(selectedOrderDetail.fulfillment_status) },
+                  { state: 'DELIVERED', title: 'Delivered (Simulated)', completed: selectedOrderDetail.fulfillment_status === 'DELIVERED' },
                 ]).map((step, idx) => (
                   <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8125rem' }}>
                     <span style={{ color: step.completed ? '#059669' : '#94a3b8', fontWeight: 800 }}>
@@ -653,8 +653,27 @@ export default function Home() {
             </div>
 
             <div className="mono" style={{ padding: '0.75rem', backgroundColor: 'var(--bg-subtle)', borderRadius: 6, fontSize: '0.75rem', lineHeight: 1.5, color: '#475569' }}>
-              <div><strong>Tracking:</strong> {selectedOrderDetail.tracking_number || (['SHIPPED', 'DELIVERED'].includes(selectedOrderDetail.fulfillment_status) ? 'TRK-ASSIGNED' : 'Assigned upon courier dispatch')}</div>
-              <div><strong>Carrier:</strong> {selectedOrderDetail.carrier || 'AgentPay Test Logistics (Simulated Courier)'}</div>
+              <div>
+                <strong>Tracking:</strong>{' '}
+                {selectedOrderDetail.tracking_number ? (
+                  <span>
+                    {selectedOrderDetail.tracking_number}{' '}
+                    <span style={{ fontSize: '0.6875rem', backgroundColor: '#e0e7ff', color: '#3730a3', padding: '1px 6px', borderRadius: 4, fontWeight: 600 }}>
+                      Simulated / Demo Tracking
+                    </span>
+                  </span>
+                ) : (
+                  <span style={{ color: '#64748b' }}>Not yet assigned (Pending shipment)</span>
+                )}
+              </div>
+              <div>
+                <strong>Carrier:</strong>{' '}
+                {['SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(selectedOrderDetail.fulfillment_status) ? (
+                  <span>{selectedOrderDetail.carrier || 'Simulated Courier (Demo)'} <span style={{ fontSize: '0.6875rem', color: '#64748b' }}>(Simulated)</span></span>
+                ) : (
+                  <span style={{ color: '#64748b' }}>Unassigned (Awaiting dispatch)</span>
+                )}
+              </div>
               <div><strong>Payment Capture:</strong> Verified (Razorpay Test Rails)</div>
             </div>
 

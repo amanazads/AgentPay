@@ -173,6 +173,10 @@ describe('Track 01: Concurrency & Double-Spend Elimination Hardening Suite', () 
     expect(rRow.product_id).toBe(boughtProductId);
 
     // Clean up
+    await query('DELETE FROM invoices WHERE order_id IN (SELECT id FROM orders WHERE purchase_intent_id IN (SELECT id FROM purchase_intents WHERE product_id = $1))', [targetProduct.id]);
+    await query('DELETE FROM orders WHERE purchase_intent_id IN (SELECT id FROM purchase_intents WHERE product_id = $1)', [targetProduct.id]);
+    await query('DELETE FROM transactions WHERE purchase_intent_id IN (SELECT id FROM purchase_intents WHERE product_id = $1)', [targetProduct.id]);
+    await query('DELETE FROM purchase_intents WHERE product_id = $1', [targetProduct.id]);
     await query('DELETE FROM products WHERE id = $1', [targetProduct.id]);
   });
 

@@ -74,6 +74,9 @@ export default function AIBuyer() {
           authStatus: chatRes.authorization_status,
           purchaseIntent: chatRes.purchase_intent,
           evaluation: chatRes.evaluation,
+          order: chatRes.order,
+          invoice: chatRes.invoice,
+          executionStatus: chatRes.execution_status,
           timestamp: new Date(),
         },
       ]);
@@ -203,24 +206,38 @@ export default function AIBuyer() {
                     {/* Action Button */}
                     <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
                       {m.evaluation?.decision === 'ALLOW' && (
-                        <button
-                          className="btn-ui btn-ui-primary btn-ui-sm"
-                          onClick={() =>
-                            setReviewModalData({
-                              isOpen: true,
-                              intent: m.purchaseIntent || {
-                                id: m.intentId || m.purchaseIntentId || `pi_${Date.now()}`,
-                                product_name: m.recommendation.name,
-                                amount: m.recommendation.price,
-                                merchant_name: m.recommendation.merchant_name,
-                                agent_name: selectedAgent?.name,
-                              },
-                              evaluation: m.evaluation,
-                            })
-                          }
-                        >
-                          Review & Authorize Purchase →
-                        </button>
+                        m.order && m.order.order_number ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--success)', fontWeight: 600 }}>
+                              ✓ Confirmed Order: {m.order.order_number}
+                            </span>
+                            <button
+                              className="btn-ui btn-ui-secondary btn-ui-sm"
+                              onClick={() => navigate('/purchases')}
+                            >
+                              View in Purchases Ledger →
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            className="btn-ui btn-ui-primary btn-ui-sm"
+                            onClick={() =>
+                              setReviewModalData({
+                                isOpen: true,
+                                intent: m.purchaseIntent || {
+                                  id: m.intentId || m.purchaseIntentId || `pi_${Date.now()}`,
+                                  product_name: m.recommendation.name,
+                                  amount: m.recommendation.price,
+                                  merchant_name: m.recommendation.merchant_name,
+                                  agent_name: selectedAgent?.name,
+                                },
+                                evaluation: m.evaluation,
+                              })
+                            }
+                          >
+                            Review & Authorize Purchase →
+                          </button>
+                        )
                       )}
 
                       {m.evaluation?.decision === 'APPROVAL_REQUIRED' && (

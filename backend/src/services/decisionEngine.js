@@ -56,6 +56,23 @@ export async function evaluatePurchaseIntent(purchaseIntentId, io = null) {
   // Acquire concurrency budget lock for the user during policy evaluation
   const releaseLock = await acquireBudgetLock(intent.user_id, 10);
   try {
+    // 1b. Authoritative Catalog Product Grounding
+    if (!intent.product_id || !intent.product_name) {
+      const notFoundReason = `Product ${intent.product_id || 'unknown'} does not exist in authoritative catalog.`;
+      await transitionPurchaseState(purchaseIntentId, PurchaseStates.BLOCKED, { actor: 'system', reason: notFoundReason, io });
+      await query(`
+        UPDATE purchase_intents
+        SET policy_decision = 'BLOCK', status = 'blocked', state = $1, updated_at = NOW()
+        WHERE id = $2
+      `, [PurchaseStates.BLOCKED, purchaseIntentId]);
+      return {
+        decision: 'BLOCK',
+        status: 'blocked',
+        state: PurchaseStates.BLOCKED,
+        reason: notFoundReason,
+        rule: 'PRODUCT_NOT_FOUND',
+      };
+    }
 
   // 2. Price Protection Validation
   const intentAmount = parseFloat(intent.amount);

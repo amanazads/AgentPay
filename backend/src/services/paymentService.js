@@ -212,7 +212,7 @@ export async function createPaymentOrder(arg1, arg2 = {}) {
       throw new Error(`Merchant checkout unavailable: ${merchantCheck.reason}`);
     }
 
-    const authCheck = await paymentMethodService.verifyPaymentAuthorization(intent.user_id, amount);
+    const authCheck = await paymentMethodService.verifyPaymentAuthorization(intent.user_id, amount, options);
     if (!authCheck.authorized) {
       await releaseIdempotencyLock(idempotencyKey);
       throw new Error(`Payment authorization invalid: ${authCheck.reason}`);
@@ -429,57 +429,35 @@ export async function verifyPayment({
     };
   }
 
-  const effectiveMode = (tx.payment_mode || env.PAYMENT_MODE).toLowerCase();
-  const provider = getPaymentProvider(effectiveMode);
-
-  // 2. Cryptographic Signature Verification via Provider
-  const verifyResult = await provider.verifyPayment({
-    orderId: razorpayOrderId || tx.razorpay_order_id,
-    paymentId: razorpayPaymentId,
-    signature: razorpaySignature,
-  });
-
-  if (!verifyResult.verified) {
-    await recordAuditEvent({
-      eventType: 'PAYMENT_VERIFICATION_FAILED',
-      actor: 'system',
-      agentId: tx.agent_id,
-      userId: tx.user_id,
-      transactionId: tx.id,
-      purchaseIntentId: tx.intent_id,
-      action: 'VERIFY_PAYMENT_SIGNATURE',
-      decision: 'BLOCK',
-      outcome: 'Invalid signature. Potential tamper attempt.',
-      metadata: { transactionId: tx.id, razorpayOrderId, razorpayPaymentId, environment: tx.environment },
-      io,
-    });
-
-    const targetQuoteId = quoteId || (await query('SELECT quote_id FROM purchase_intents WHERE id = $1', [tx.intent_id])).rows[0]?.quote_id;
-
-    if (targetQuoteId) {
-      await releaseReservation(targetQuoteId, 'Payment signature verification failed');
-      await cancelQuote(targetQuoteId, 'Payment signature verification failed').catch(() => {});
-    }
-
-    throw new Error('Payment signature verification failed. Tampering detected.');
-  }
-
-  // 2b. Re-verify Payment Authorization is still active (Fail-closed on mid-flight revocation)
-  if (tx.user_id) {
-    const authCheck = await paymentMethodService.verifyPaymentAuthorization(tx.user_id, parseFloat(tx.amount));
-    if (!authCheck.authorized) {
-      const targetQuoteId = quoteId || (await query('SELECT quote_id FROM purchase_intents WHERE id = $1', [tx.intent_id])).rows[0]?.quote_id;
-      if (targetQuoteId) {
-        await releaseReservation(targetQuoteId, 'Payment authorization was revoked before verification');
-        await cancelQuote(targetQuoteId, 'Payment authorization was revoked before verification').catch(() => {});
+  // Verification mutual exclusion lock (Guards against concurrent client callback & webhook delivery)
+  const verifyLockKey = `verify:${tx.id}`;
+  const verifyLockAcquired = await acquireIdempotencyLock(verifyLockKey, 60);
+  if (!verifyLockAcquired) {
+    for (let attempt = 0; attempt < 40; attempt++) {
+      await new Promise((r) => setTimeout(r, 100));
+      const reTx = await query('SELECT * FROM transactions WHERE id = $1', [tx.id]);
+      if (reTx.rows[0]?.status === 'completed' && reTx.rows[0]?.payment_verified) {
+        const existingOrder = await query('SELECT * FROM orders WHERE transaction_id = $1 OR purchase_intent_id = $2', [tx.id, tx.intent_id]);
+        return {
+          verified: true,
+          isDuplicate: true,
+          transaction: reTx.rows[0],
+          order: existingOrder.rows[0] || null,
+        };
       }
-      throw new Error(`Payment verification halted: ${authCheck.reason}`);
     }
   }
 
-  // 2c. Global Kill Switch Check during Payment Verification (Safely transitions to reconciliation)
+  try {
+
+  // 2. Global Kill Switch Check during Payment Verification (Safely transitions to reconciliation)
   const sysState = await query('SELECT kill_switch_active FROM system_state WHERE id = 1');
   if (sysState.rows[0]?.kill_switch_active) {
+    const targetQuoteId = quoteId || (await query('SELECT quote_id FROM purchase_intents WHERE id = $1', [tx.intent_id])).rows[0]?.quote_id;
+    if (targetQuoteId) {
+      await releaseReservation(targetQuoteId, 'Emergency kill switch activated during payment verification').catch(() => {});
+    }
+
     await query(`
       UPDATE transactions SET
         status = 'payment_pending',
@@ -515,6 +493,62 @@ export async function verifyPayment({
     throw err;
   }
 
+  const effectiveMode = (tx.payment_mode || env.PAYMENT_MODE).toLowerCase();
+  const provider = getPaymentProvider(effectiveMode);
+
+  // 2b. Cryptographic Signature Verification via Provider
+  const verifyResult = await provider.verifyPayment({
+    orderId: razorpayOrderId || tx.razorpay_order_id,
+    paymentId: razorpayPaymentId,
+    signature: razorpaySignature,
+  });
+
+  if (!verifyResult.verified) {
+    await query(`UPDATE transactions SET status = 'failed', updated_at = NOW() WHERE id = $1`, [tx.id]);
+    await transitionPurchaseState(tx.intent_id, PurchaseStates.PAYMENT_FAILED, {
+      actor: 'system',
+      reason: 'Payment signature verification failed. Tampering detected.',
+      metadata: { transactionId: tx.id, razorpayOrderId, razorpayPaymentId },
+      io,
+    }).catch(() => {});
+
+    await recordAuditEvent({
+      eventType: 'PAYMENT_VERIFICATION_FAILED',
+      actor: 'system',
+      agentId: tx.agent_id,
+      userId: tx.user_id,
+      transactionId: tx.id,
+      purchaseIntentId: tx.intent_id,
+      action: 'VERIFY_PAYMENT_SIGNATURE',
+      decision: 'BLOCK',
+      outcome: 'Invalid signature. Potential tamper attempt.',
+      metadata: { transactionId: tx.id, razorpayOrderId, razorpayPaymentId, environment: tx.environment },
+      io,
+    });
+
+    const targetQuoteId = quoteId || (await query('SELECT quote_id FROM purchase_intents WHERE id = $1', [tx.intent_id])).rows[0]?.quote_id;
+
+    if (targetQuoteId) {
+      await releaseReservation(targetQuoteId, 'Payment signature verification failed');
+      await cancelQuote(targetQuoteId, 'Payment signature verification failed').catch(() => {});
+    }
+
+    throw new Error('Payment signature verification failed. Tampering detected.');
+  }
+
+  // 2c. Re-verify Payment Authorization is still active (Fail-closed on mid-flight revocation)
+  if (tx.user_id) {
+    const authCheck = await paymentMethodService.verifyPaymentAuthorization(tx.user_id, parseFloat(tx.amount));
+    if (!authCheck.authorized) {
+      const targetQuoteId = quoteId || (await query('SELECT quote_id FROM purchase_intents WHERE id = $1', [tx.intent_id])).rows[0]?.quote_id;
+      if (targetQuoteId) {
+        await releaseReservation(targetQuoteId, 'Payment authorization was revoked before verification');
+        await cancelQuote(targetQuoteId, 'Payment authorization was revoked before verification').catch(() => {});
+      }
+      throw new Error(`Payment verification halted: ${authCheck.reason}`);
+    }
+  }
+
   // 2d. Per-Agent Active Status Check during Payment Verification
   if (tx.agent_id) {
     const agentRes = await query('SELECT status, name FROM agents WHERE id = $1', [tx.agent_id]);
@@ -523,6 +557,52 @@ export async function verifyPayment({
       const err = new Error(`Financial execution denied: Agent '${agentRes.rows[0]?.name}' is suspended/disabled (${agentStatus}).`);
       err.status = 403;
       throw err;
+    }
+  }
+
+  // 2e. Mandatory Pre-Payment Quote Revalidation (Live price, inventory, expiry, and ceiling re-check)
+  const finalQuoteId = quoteId || (await query('SELECT quote_id FROM purchase_intents WHERE id = $1', [tx.intent_id])).rows[0]?.quote_id;
+  if (finalQuoteId) {
+    try {
+      const piDetails = (await query('SELECT quantity, product_id, merchant_id, amount FROM purchase_intents WHERE id = $1', [tx.intent_id])).rows[0] || {};
+      await verifyQuoteForCheckout(finalQuoteId, {
+        userId: tx.user_id,
+        agentId: tx.agent_id,
+        intentId: tx.intent_id,
+        purchaseIntentId: tx.intent_id,
+        requestedProductId: tx.product_id || piDetails.product_id,
+        requestedMerchantId: tx.merchant_id || piDetails.merchant_id,
+        requestedQuantity: tx.quantity || piDetails.quantity,
+        requestedAmount: parseFloat(tx.amount || piDetails.amount),
+      });
+    } catch (qErr) {
+      await query(`UPDATE transactions SET status = 'failed', updated_at = NOW() WHERE id = $1`, [tx.id]);
+      await transitionPurchaseState(tx.intent_id, PurchaseStates.PAYMENT_FAILED, {
+        actor: 'system',
+        reason: `Pre-payment quote revalidation failed: ${qErr.message}`,
+        metadata: { quoteId: finalQuoteId, transactionId: tx.id },
+        io,
+      }).catch(() => {});
+
+      await releaseReservation(finalQuoteId, `Pre-payment quote revalidation failed: ${qErr.message}`).catch(() => {});
+      await cancelQuote(finalQuoteId, `Pre-payment quote revalidation failed: ${qErr.message}`).catch(() => {});
+
+      await recordAuditEvent({
+        eventType: 'QUOTE_REVALIDATION_FAILED',
+        actor: 'system',
+        userId: tx.user_id,
+        agentId: tx.agent_id,
+        transactionId: tx.id,
+        purchaseIntentId: tx.intent_id,
+        action: 'REVALIDATE_QUOTE_BEFORE_PAYMENT',
+        decision: 'BLOCK',
+        reasoning: `Quote revalidation immediately before payment failed: ${qErr.message}`,
+        outcome: 'Payment aborted. Transaction marked failed. Reservation released.',
+        metadata: { quoteId: finalQuoteId, code: qErr.code, error: qErr.message },
+        io,
+      }).catch(() => {});
+
+      throw qErr;
     }
   }
 
@@ -539,7 +619,6 @@ export async function verifyPayment({
   `, [tx.id, razorpayPaymentId, razorpaySignature]);
 
   // 4. Commit Inventory Reservation & Consume Quote
-  const finalQuoteId = quoteId || (await query('SELECT quote_id FROM purchase_intents WHERE id = $1', [tx.intent_id])).rows[0]?.quote_id;
   if (finalQuoteId) {
     await commitReservation(finalQuoteId);
     await consumeQuote(finalQuoteId).catch(() => {});
@@ -609,7 +688,7 @@ export async function verifyPayment({
         paymentStatus: 'VERIFIED',
         deliveryAddress,
         deliveryMethod,
-        carrier: 'AgentPay Express Logistics',
+        carrier: null,
         io,
       });
 
@@ -618,11 +697,47 @@ export async function verifyPayment({
         io,
       });
     } catch (ordErr) {
-      logger.warn('Payment', 'Order or invoice generation notice during verifyPayment:', ordErr.message);
+      logger.error('Payment', 'Order or invoice generation notice during verifyPayment:', ordErr.message);
     }
   }
 
-  // 6. State Machine Transition
+  // 6. State Machine Transition: Zero Contradiction & Reconciliation
+  if (!confirmedOrder) {
+    await transitionPurchaseState(tx.intent_id, PurchaseStates.RECONCILIATION_REQUIRED, {
+      actor: 'system',
+      reason: 'Payment verified but order confirmation could not be generated. Reconciliation required.',
+      metadata: { paymentId: razorpayPaymentId, transactionId: tx.id },
+      io,
+    }).catch(() => {});
+
+    await query(`
+      UPDATE transactions SET state = 'RECONCILIATION_REQUIRED', updated_at = NOW() WHERE id = $1
+    `, [tx.id]);
+
+    await recordAuditEvent({
+      eventType: 'PAYMENT_RECONCILIATION_REQUIRED',
+      actor: 'system',
+      agentId: tx.agent_id,
+      userId: tx.user_id,
+      transactionId: tx.id,
+      purchaseIntentId: tx.intent_id,
+      action: 'REQUIRE_RECONCILIATION',
+      decision: 'HOLD',
+      reasoning: 'Payment verified on gateway, but order generation encountered an issue. Routed to reconciliation.',
+      outcome: 'Payment status pending / reconciliation required',
+      io,
+    });
+
+    return {
+      verified: true,
+      order: null,
+      state: PurchaseStates.RECONCILIATION_REQUIRED,
+      reconciliationRequired: true,
+      message: 'Payment status pending / reconciliation required',
+      transaction: updatedTx.rows[0],
+    };
+  }
+
   await transitionPurchaseState(tx.intent_id, PurchaseStates.PAYMENT_SUCCESS, {
     actor: 'system',
     reason: `Payment ${razorpayPaymentId} successfully verified on ${tx.payment_mode || 'TEST'} rails.`,
@@ -667,15 +782,18 @@ export async function verifyPayment({
     io,
   });
 
-  return {
-    success: true,
-    verified: true,
-    status: 'payment_completed',
-    transaction: updatedTx.rows[0],
-    order: confirmedOrder,
-    environment: tx.environment,
-    paymentMode: tx.payment_mode,
-  };
+    return {
+      success: true,
+      verified: true,
+      status: 'payment_completed',
+      transaction: updatedTx.rows[0],
+      order: confirmedOrder,
+      environment: tx.environment,
+      paymentMode: tx.payment_mode,
+    };
+  } finally {
+    await releaseIdempotencyLock(verifyLockKey);
+  }
 }
 
 /**

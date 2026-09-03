@@ -28,21 +28,41 @@ router.get('/overview', async (req, res, next) => {
   try {
     const userId = getUserIdFromRequest(req);
     const merchantId = await getMerchantIdForUser(userId);
+    const { timeRange = 'all' } = req.query;
+
+    const emptyMetrics = {
+      totalRevenue: 0,
+      grossRevenue: 0,
+      netRevenue: 0,
+      refundedRevenue: 0,
+      aiRevenue: 0,
+      totalOrders: 0,
+      aiOrdersCount: 0,
+      totalOrdersCreated: 0,
+      successfulPaymentsCount: 0,
+      pendingOrdersCount: 0,
+      shippedOrdersCount: 0,
+      deliveredOrdersCount: 0,
+      conversionRate: 0,
+      aiConversionRate: 0,
+      aov: 0,
+      readinessScore: 0,
+      verifiedPillarsCount: 0,
+      totalPillarsCount: 6,
+      totalIntents: 0,
+      aiPurchasableProducts: 0,
+      outOfStockProducts: 0,
+      catalogHealth: 'Store not created yet',
+    };
 
     if (!merchantId) {
       return res.json({
         hasStore: false,
         store: null,
-        metrics: {
-          aiOrdersCount: 0,
-          aiRevenue: 0,
-          aiConversionRate: 0,
-          aov: 0,
-          aiReadableProducts: 0,
-          aiPurchasableProducts: 0,
-          outOfStockProducts: 0,
-          catalogHealth: 'Store not created yet',
-        },
+        environment: env.APP_ENV.toUpperCase(),
+        isLive: Boolean(env.isLiveMode),
+        paymentMode: env.isLiveMode ? 'LIVE' : 'TEST_SANDBOX_HMAC',
+        metrics: emptyMetrics,
         topProducts: [],
         recentOrders: [],
       });
@@ -55,20 +75,35 @@ router.get('/overview', async (req, res, next) => {
       return res.json({
         hasStore: false,
         store: null,
-        metrics: {
-          aiOrdersCount: 0,
-          aiRevenue: 0,
-          aiConversionRate: 0,
-          aov: 0,
-          aiReadableProducts: 0,
-          aiPurchasableProducts: 0,
-          outOfStockProducts: 0,
-          catalogHealth: 'Store not created yet',
-        },
+        environment: env.APP_ENV.toUpperCase(),
+        isLive: Boolean(env.isLiveMode),
+        paymentMode: env.isLiveMode ? 'LIVE' : 'TEST_SANDBOX_HMAC',
+        metrics: emptyMetrics,
         topProducts: [],
         recentOrders: [],
       });
     }
+
+    // Determine time range boundary
+    let timeClause = '';
+    const now = new Date();
+    let fromDate = null;
+
+    if (timeRange === 'today') {
+      fromDate = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+      timeClause = `AND o.created_at >= '${fromDate}'`;
+    } else if (timeRange === '7d') {
+      fromDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      timeClause = `AND o.created_at >= '${fromDate}'`;
+    } else if (timeRange === '30d') {
+      fromDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      timeClause = `AND o.created_at >= '${fromDate}'`;
+    } else if (timeRange === '90d') {
+      fromDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+      timeClause = `AND o.created_at >= '${fromDate}'`;
+    }
+
+    // 1. Query canonical merchant orders in time range (strictly excluding test lab products)
     const activeOrdersRes = await query(`
       SELECT o.id,
              o.order_number,
@@ -111,14 +146,49 @@ router.get('/overview', async (req, res, next) => {
       LEFT JOIN users u ON o.user_id = u.id
       LEFT JOIN invoices inv ON inv.order_id = o.id
       WHERE o.merchant_id = $1
-        AND o.order_status NOT IN ('CANCELLED', 'VOIDED', 'FAILED', 'BLOCKED')
-        AND o.payment_status = 'VERIFIED'
+        AND (p.is_test_lab = false OR p.is_test_lab IS NULL)
+        ${timeClause}
       ORDER BY o.created_at DESC
     `, [merchantId]);
 
-    const liveOrders = activeOrdersRes.rows;
+    const allOrders = activeOrdersRes.rows;
 
-    // 2. Query product metrics
+    // Filter valid completed/active orders (payment verified and NOT cancelled/failed/blocked/refunded)
+    const validPaidOrders = allOrders.filter((o) =>
+      o.payment_status === 'VERIFIED' &&
+      !['CANCELLED', 'VOIDED', 'FAILED', 'BLOCKED', 'BLOCKED_INTEGRITY_EXCEPTION', 'REFUNDED'].includes(o.order_status) &&
+      o.fulfillment_status !== 'CANCELLED' &&
+      o.fulfillment_status !== 'REFUNDED'
+    );
+
+    const refundedOrders = allOrders.filter((o) =>
+      o.order_status === 'REFUNDED' || o.fulfillment_status === 'REFUNDED'
+    );
+
+    // Truthful revenue calculation: gross, refunded, and net
+    const grossRevenue = validPaidOrders.reduce((sum, o) => sum + (parseFloat(o.total_amount) || 0), 0);
+    const refundedRevenue = refundedOrders.reduce((sum, o) => sum + (parseFloat(o.total_amount) || 0), 0);
+    const netRevenue = Math.max(0, grossRevenue - refundedRevenue);
+
+    // Decoupled order counts
+    const totalOrdersCreated = allOrders.length;
+    const successfulPaymentsCount = validPaidOrders.length;
+    const pendingOrdersCount = allOrders.filter((o) =>
+      ['CONFIRMED', 'PROCESSING', 'PACKED'].includes(o.fulfillment_status || o.order_status) &&
+      !['CANCELLED', 'REFUNDED'].includes(o.fulfillment_status)
+    ).length;
+    const shippedOrdersCount = allOrders.filter((o) =>
+      ['SHIPPED', 'OUT_FOR_DELIVERY'].includes(o.fulfillment_status || o.order_status)
+    ).length;
+    const deliveredOrdersCount = allOrders.filter((o) =>
+      (o.fulfillment_status || o.order_status) === 'DELIVERED'
+    ).length;
+    const cancelledOrdersCount = allOrders.filter((o) =>
+      ['CANCELLED', 'BLOCKED', 'BLOCKED_INTEGRITY_EXCEPTION'].includes(o.fulfillment_status || o.order_status)
+    ).length;
+    const aov = successfulPaymentsCount > 0 ? Math.round(grossRevenue / successfulPaymentsCount) : 0;
+
+    // 2. Query product metrics (excluding test lab)
     const prodCountRes = await query(`
       SELECT COUNT(*) as total, 
              COUNT(CASE WHEN in_stock = true AND inventory > 0 THEN 1 END) as in_stock_count,
@@ -128,58 +198,63 @@ router.get('/overview', async (req, res, next) => {
       WHERE merchant_id = $1 AND (is_test_lab = false OR is_test_lab IS NULL)
     `, [merchantId]);
 
-    const totalProducts = parseInt(prodCountRes.rows[0]?.total || '0');
-    const inStock = parseInt(prodCountRes.rows[0]?.in_stock_count || '0');
-    const withSpecs = parseInt(prodCountRes.rows[0]?.with_specs || '0');
-    const schemaValid = parseInt(prodCountRes.rows[0]?.schema_valid_count || '0');
+    const totalProducts = parseInt(prodCountRes.rows[0]?.total || '0', 10);
+    const inStock = parseInt(prodCountRes.rows[0]?.in_stock_count || '0', 10);
+    const withSpecs = parseInt(prodCountRes.rows[0]?.with_specs || '0', 10);
+    const schemaValid = parseInt(prodCountRes.rows[0]?.schema_valid_count || '0', 10);
 
-    // 3. Query purchase intents for mathematical conversion calculation
+    // 3. Query purchase intents for mathematical conversion calculation in time range
+    let piTimeClause = '';
+    if (fromDate) {
+      piTimeClause = `AND pi.created_at >= '${fromDate}'`;
+    }
     const intentRes = await query(`
-      SELECT COUNT(*) as total_intents,
-             COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_intents,
-             COUNT(CASE WHEN status = 'blocked' THEN 1 END) as blocked_intents,
-             COUNT(CASE WHEN status = 'approval_required' THEN 1 END) as approval_intents
-      FROM purchase_intents
-      WHERE merchant_id = $1
+      SELECT COUNT(DISTINCT pi.id) as total_intents,
+             COUNT(DISTINCT pi.id) FILTER (WHERE pi.status IN ('completed', 'approved', 'paid') OR pi.policy_decision = 'ALLOW') as eligible_intents,
+             COUNT(DISTINCT pi.id) FILTER (WHERE pi.status = 'blocked' OR pi.policy_decision = 'BLOCK') as blocked_intents
+      FROM purchase_intents pi
+      LEFT JOIN products p ON pi.product_id = p.id
+      WHERE pi.merchant_id = $1 AND (p.is_test_lab = false OR p.is_test_lab IS NULL) ${piTimeClause}
     `, [merchantId]);
 
-    const totalIntents = parseInt(intentRes.rows[0]?.total_intents || '0');
-    const completedIntents = parseInt(intentRes.rows[0]?.completed_intents || '0');
-    const blockedIntents = parseInt(intentRes.rows[0]?.blocked_intents || '0');
+    const totalIntents = parseInt(intentRes.rows[0]?.total_intents || '0', 10);
+    const eligibleIntents = parseInt(intentRes.rows[0]?.eligible_intents || '0', 10);
+    const blockedIntents = parseInt(intentRes.rows[0]?.blocked_intents || '0', 10);
 
-    // 4. Aggregate real revenue & completed orders
-    const totalAiRevenue = liveOrders.reduce((sum, o) => sum + (parseFloat(o.total_amount) || 0), 0);
-    const totalAiOrders = liveOrders.length;
-    const aov = totalAiOrders > 0 ? Math.round(totalAiRevenue / totalAiOrders) : 0;
-    
-    // Mathematical conversion rate: completed / total_intents evaluated
-    const effectiveDenominator = Math.max(totalIntents, totalAiOrders);
-    const conversionRate = effectiveDenominator > 0 
-      ? Math.round((Math.max(completedIntents, totalAiOrders) / effectiveDenominator) * 1000) / 10 
+    // Mathematical conversion rate: successful payments / total evaluated purchase intents (never fabricated)
+    const conversionRate = totalIntents > 0
+      ? Math.round((successfulPaymentsCount / totalIntents) * 1000) / 10
       : 0;
 
-    // 5. Query safety blocks breakdown
+    // 4. Query safety blocks breakdown strictly scoped to authenticated merchant
+    let aeTimeClause = '';
+    if (fromDate) {
+      aeTimeClause = `AND ae.created_at >= '${fromDate}'`;
+    }
     const safetyRes = await query(`
       SELECT 
-        COUNT(CASE WHEN reasoning ILIKE '%surge%' OR reasoning ILIKE '%price%' OR event_type = 'PRICE_SURGE_DETECTED' THEN 1 END) as price_surge_blocks,
-        COUNT(CASE WHEN reasoning ILIKE '%budget%' OR reasoning ILIKE '%limit%' THEN 1 END) as budget_limit_blocks,
-        COUNT(CASE WHEN reasoning ILIKE '%stock%' OR reasoning ILIKE '%inventory%' THEN 1 END) as inventory_blocks,
-        COUNT(CASE WHEN reasoning ILIKE '%category%' THEN 1 END) as category_blocks,
-        COUNT(CASE WHEN reasoning ILIKE '%mandate%' OR reasoning ILIKE '%authorization%' THEN 1 END) as payment_blocks
-      FROM audit_events
-      WHERE decision = 'BLOCK'
-    `);
+        COUNT(CASE WHEN ae.reasoning ILIKE '%surge%' OR ae.reasoning ILIKE '%price%' OR ae.event_type = 'PRICE_SURGE_DETECTED' THEN 1 END) as price_surge_blocks,
+        COUNT(CASE WHEN ae.reasoning ILIKE '%budget%' OR ae.reasoning ILIKE '%limit%' THEN 1 END) as budget_limit_blocks,
+        COUNT(CASE WHEN ae.reasoning ILIKE '%stock%' OR ae.reasoning ILIKE '%inventory%' THEN 1 END) as inventory_blocks,
+        COUNT(CASE WHEN ae.reasoning ILIKE '%category%' THEN 1 END) as category_blocks,
+        COUNT(CASE WHEN ae.reasoning ILIKE '%mandate%' OR ae.reasoning ILIKE '%authorization%' THEN 1 END) as payment_blocks
+      FROM audit_events ae
+      LEFT JOIN purchase_intents pi ON ae.purchase_intent_id = pi.id
+      WHERE ae.decision = 'BLOCK'
+        AND (pi.merchant_id = $1 OR ae.metadata->>'merchantId' = $1::text OR ae.metadata->>'merchant_id' = $1::text)
+        ${aeTimeClause}
+    `, [merchantId]);
 
     const safetyBlocks = {
-      totalBlocked: blockedIntents > 0 ? blockedIntents : parseInt(safetyRes.rows[0]?.price_surge_blocks || '0') + parseInt(safetyRes.rows[0]?.budget_limit_blocks || '0') + parseInt(safetyRes.rows[0]?.inventory_blocks || '0'),
-      priceSurges: parseInt(safetyRes.rows[0]?.price_surge_blocks || '0'),
-      budgetLimits: parseInt(safetyRes.rows[0]?.budget_limit_blocks || '0'),
-      inventoryUnavailable: parseInt(safetyRes.rows[0]?.inventory_blocks || '0'),
-      categoryRestricted: parseInt(safetyRes.rows[0]?.category_blocks || '0'),
-      paymentAuthUnavailable: parseInt(safetyRes.rows[0]?.payment_blocks || '0'),
+      totalBlocked: blockedIntents > 0 ? blockedIntents : parseInt(safetyRes.rows[0]?.price_surge_blocks || '0', 10) + parseInt(safetyRes.rows[0]?.budget_limit_blocks || '0', 10) + parseInt(safetyRes.rows[0]?.inventory_blocks || '0', 10),
+      priceSurges: parseInt(safetyRes.rows[0]?.price_surge_blocks || '0', 10),
+      budgetLimits: parseInt(safetyRes.rows[0]?.budget_limit_blocks || '0', 10),
+      inventoryUnavailable: parseInt(safetyRes.rows[0]?.inventory_blocks || '0', 10),
+      categoryRestricted: parseInt(safetyRes.rows[0]?.category_blocks || '0', 10),
+      paymentAuthUnavailable: parseInt(safetyRes.rows[0]?.payment_blocks || '0', 10),
     };
 
-    // 6. 6-Pillar Evidence-Based Readiness
+    // 5. 6-Pillar Evidence-Based Readiness
     const p1Ready = totalProducts > 0 && schemaValid === totalProducts;
     const p2Ready = totalProducts > 0 && withSpecs >= Math.floor(totalProducts * 0.8);
     const p3Ready = inStock > 0;
@@ -240,17 +315,17 @@ router.get('/overview', async (req, res, next) => {
       },
     ];
 
-    // 7. Canonical Funnel Counts
-    const approvedCount = Math.max(totalAiOrders, completedIntents);
+    // 6. Canonical Funnel Counts
     const funnel = [
       { stage: 'Active Catalog SKUs', count: totalProducts, percentage: 100 },
       { stage: 'Purchase Intents Initiated', count: totalIntents, percentage: totalProducts > 0 ? Math.min(100, Math.round((totalIntents / totalProducts) * 100)) : 100 },
-      { stage: 'Policy & Risk Approved', count: approvedCount, percentage: totalIntents > 0 ? Math.round((approvedCount / totalIntents) * 100) : 100 },
-      { stage: 'Payment Verified & Captured', count: totalAiOrders, percentage: totalIntents > 0 ? Math.round((totalAiOrders / totalIntents) * 100) : 100 },
-      { stage: 'Completed AI Orders', count: totalAiOrders, percentage: totalIntents > 0 ? Math.round((totalAiOrders / totalIntents) * 100) : 100 },
+      { stage: 'Policy & Risk Approved', count: eligibleIntents, percentage: totalIntents > 0 ? Math.round((eligibleIntents / totalIntents) * 100) : 100 },
+      { stage: 'Payment Verified & Captured', count: successfulPaymentsCount, percentage: totalIntents > 0 ? Math.round((successfulPaymentsCount / totalIntents) * 100) : 100 },
+      { stage: 'Orders Created in Ledger', count: totalOrdersCreated, percentage: totalIntents > 0 ? Math.round((totalOrdersCreated / totalIntents) * 100) : 100 },
+      { stage: 'Delivered Orders', count: deliveredOrdersCount, percentage: totalIntents > 0 ? Math.round((deliveredOrdersCount / totalIntents) * 100) : 100 },
     ];
 
-    // Top products
+    // 7. Top products (strictly derived from canonical orders table, excluding test lab)
     const topProdRes = await query(`
       SELECT COALESCE(o.product_name, p.name) as name,
              SUM(o.total_amount) as revenue,
@@ -258,14 +333,16 @@ router.get('/overview', async (req, res, next) => {
       FROM orders o
       LEFT JOIN products p ON o.product_id = p.id
       WHERE o.merchant_id = $1
-        AND o.order_status NOT IN ('CANCELLED', 'VOIDED', 'FAILED', 'BLOCKED')
+        AND (p.is_test_lab = false OR p.is_test_lab IS NULL)
+        AND o.order_status NOT IN ('CANCELLED', 'VOIDED', 'FAILED', 'BLOCKED', 'REFUNDED')
         AND o.payment_status = 'VERIFIED'
+        ${timeClause}
       GROUP BY COALESCE(o.product_name, p.name)
       ORDER BY revenue DESC
       LIMIT 5
     `, [merchantId]);
 
-    // Catalog Preview for Dashboard Overview
+    // 8. Catalog Preview for Dashboard Overview
     const catalogRes = await query(`
       SELECT p.id, p.name, p.sku, p.price, p.inventory, p.in_stock, p.product_type,
              p.category, p.commerce_eligible, p.specifications
@@ -277,34 +354,53 @@ router.get('/overview', async (req, res, next) => {
 
     res.json({
       hasStore: true,
+      environment: env.APP_ENV.toUpperCase(),
+      isLive: Boolean(env.isLiveMode),
+      paymentMode: env.isLiveMode ? 'LIVE' : 'TEST_SANDBOX_HMAC',
+      timeRange: {
+        range: timeRange,
+        from: fromDate,
+        to: now.toISOString(),
+      },
       store: {
         id: store.id,
         name: store.name,
         category: store.category,
       },
       metrics: {
-        totalRevenue: totalAiRevenue,
-        aiRevenue: totalAiRevenue,
-        totalOrders: totalAiOrders,
-        aiOrdersCount: totalAiOrders,
-        conversionRate: conversionRate,
+        totalRevenue: grossRevenue,
+        grossRevenue,
+        netRevenue,
+        refundedRevenue,
+        aiRevenue: grossRevenue,
+        totalOrders: successfulPaymentsCount,
+        aiOrdersCount: successfulPaymentsCount,
+        totalOrdersCreated,
+        successfulPaymentsCount,
+        pendingOrdersCount,
+        shippedOrdersCount,
+        deliveredOrdersCount,
+        cancelledOrdersCount,
+        conversionRate,
         aiConversionRate: conversionRate,
-        aov: aov,
+        aov,
         readinessScore: verifiedPillarsCount,
-        verifiedPillarsCount: verifiedPillarsCount,
+        verifiedPillarsCount,
         totalPillarsCount: 6,
-        totalIntents: effectiveDenominator,
+        totalIntents,
         aiPurchasableProducts: inStock,
         outOfStockProducts: Math.max(0, totalProducts - inStock),
         catalogHealth: totalProducts > 0 ? (inStock === totalProducts ? '100% In Stock' : `${Math.round((inStock / totalProducts) * 100)}% In Stock`) : 'Add products to begin',
       },
+      safetyBlocks,
       readinessPillars,
+      funnel,
       catalogPreview: catalogRes.rows.map((p) => ({
         id: p.id,
         name: p.name,
         sku: p.sku || `SKU-${p.id.slice(0, 6).toUpperCase()}`,
         price: parseFloat(p.price) || 0,
-        inventory: parseInt(p.inventory || 0),
+        inventory: parseInt(p.inventory || 0, 10),
         inStock: p.in_stock !== false,
         productType: p.product_type || 'General',
         category: p.category || 'Electronics',
@@ -314,10 +410,9 @@ router.get('/overview', async (req, res, next) => {
       topProducts: topProdRes.rows.map((tp) => ({
         name: tp.name,
         revenue: parseFloat(tp.revenue) || 0,
-        aiImpressions: (parseInt(tp.order_count) || 1) * 6,
-        conversion: '12.5%',
+        orderCount: parseInt(tp.order_count || '0', 10),
       })),
-      recentOrders: liveOrders.slice(0, 10).map((o) => {
+      recentOrders: allOrders.slice(0, 10).map((o) => {
         const maskedEmail = o.buyer_email
           ? `${o.buyer_email.split('@')[0].slice(0, 3)}***@${o.buyer_email.split('@')[1]}`
           : 'buyer***@agentpay.ai';
@@ -376,7 +471,9 @@ router.get('/products', async (req, res, next) => {
              pam.margin_tier
       FROM products p
       LEFT JOIN product_ai_metadata pam ON p.id = pam.product_id
-      WHERE p.merchant_id = $1 AND (p.status != 'ARCHIVED' OR p.status IS NULL)
+      WHERE p.merchant_id = $1 
+        AND (p.status != 'ARCHIVED' OR p.status IS NULL)
+        AND (p.is_test_lab = false OR p.is_test_lab IS NULL)
       ORDER BY p.created_at DESC
     `, [merchantId]);
 
@@ -844,8 +941,17 @@ router.post('/products/:id/status', async (req, res, next) => {
     const userId = getUserIdFromRequest(req);
     const merchantId = await getMerchantIdForUser(userId);
 
+    if (!merchantId) {
+      return res.status(403).json({ error: 'Merchant store required' });
+    }
+
     if (!['ACTIVE', 'PAUSED', 'ARCHIVED'].includes(status)) {
       return res.status(400).json({ error: 'Status must be ACTIVE, PAUSED, or ARCHIVED' });
+    }
+
+    const existingRes = await query('SELECT * FROM products WHERE id = $1 AND merchant_id = $2', [id, merchantId]);
+    if (existingRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Product not found' });
     }
 
     const updated = await query(`
@@ -857,10 +963,6 @@ router.post('/products/:id/status', async (req, res, next) => {
       WHERE id = $2 AND merchant_id = $3
       RETURNING id, name, sku, status, inventory
     `, [status, id, merchantId]);
-
-    if (updated.rows.length === 0) {
-      return res.status(404).json({ error: 'Product not found' });
-    }
 
     const prod = updated.rows[0];
     const io = req.app.get('io');
@@ -889,6 +991,15 @@ router.delete('/products/:id', async (req, res, next) => {
     const { id } = req.params;
     const userId = getUserIdFromRequest(req);
     const merchantId = await getMerchantIdForUser(userId);
+
+    if (!merchantId) {
+      return res.status(403).json({ error: 'Merchant store required' });
+    }
+
+    const existingRes = await query('SELECT * FROM products WHERE id = $1 AND merchant_id = $2', [id, merchantId]);
+    if (existingRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
 
     const updated = await query(`
       UPDATE products
@@ -1072,9 +1183,9 @@ router.get('/orders', async (req, res, next) => {
       confirmedCount: liveOrders.filter((o) => (o.fulfillment_status || o.order_status) === 'CONFIRMED').length,
       processingCount: liveOrders.filter((o) => (o.fulfillment_status || o.order_status) === 'PROCESSING').length,
       packedCount: liveOrders.filter((o) => (o.fulfillment_status || o.order_status) === 'PACKED').length,
-      shippedCount: liveOrders.filter((o) => (o.fulfillment_status || o.order_status) === 'SHIPPED').length,
+      shippedCount: liveOrders.filter((o) => (o.fulfillment_status || o.order_status) === 'SHIPPED' || (o.fulfillment_status || o.order_status) === 'OUT_FOR_DELIVERY').length,
       deliveredCount: liveOrders.filter((o) => (o.fulfillment_status || o.order_status) === 'DELIVERED').length,
-      completedCount: liveOrders.filter((o) => (o.fulfillment_status || o.order_status) === 'COMPLETED').length,
+      completedCount: liveOrders.filter((o) => (o.fulfillment_status || o.order_status) === 'DELIVERED').length,
       cancelledCount: liveOrders.filter((o) => (o.fulfillment_status || o.order_status) === 'CANCELLED').length,
       blockedCount: liveOrders.filter((o) => (o.fulfillment_status || o.order_status) === 'BLOCKED_INTEGRITY_EXCEPTION').length,
     };
@@ -1108,7 +1219,8 @@ router.get('/orders', async (req, res, next) => {
       fulfillmentStatus: o.fulfillment_status || o.order_status || 'CONFIRMED',
       paymentVerified: o.payment_status === 'VERIFIED',
       trackingNumber: o.tracking_number,
-      carrier: o.carrier || 'AgentPay Express Logistics',
+      carrier: o.carrier || (['SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(o.fulfillment_status) ? 'Simulated Courier (Demo)' : null),
+      isSimulated: o.environment !== 'LIVE',
       timeline: o.timeline || [],
       cancelledAt: o.cancelled_at,
       cancelledBy: o.cancelled_by,
@@ -1303,17 +1415,17 @@ router.get('/analytics', async (req, res, next) => {
 
     const conversionRate = totalIntents > 0
       ? Math.round((completedOrdersCount / totalIntents) * 1000) / 10
-      : (completedOrdersCount > 0 ? 100 : 0);
+      : 0;
 
-    const conversionFraction = `${completedOrdersCount} / ${totalIntents || completedOrdersCount}`;
+    const conversionFraction = `${completedOrdersCount} / ${totalIntents}`;
 
     // 3. Outcomes Breakdown
     const outcomes = {
-      completed: allOrders.filter((o) => (o.fulfillment_status || o.order_status) === 'COMPLETED').length,
+      completed: allOrders.filter((o) => (o.fulfillment_status || o.order_status) === 'DELIVERED').length,
       confirmed: allOrders.filter((o) => (o.fulfillment_status || o.order_status) === 'CONFIRMED').length,
       processing: allOrders.filter((o) => (o.fulfillment_status || o.order_status) === 'PROCESSING').length,
       packed: allOrders.filter((o) => (o.fulfillment_status || o.order_status) === 'PACKED').length,
-      shipped: allOrders.filter((o) => (o.fulfillment_status || o.order_status) === 'SHIPPED' || o.fulfillment_status === 'OUT_FOR_DELIVERY').length,
+      shipped: allOrders.filter((o) => (o.fulfillment_status || o.order_status) === 'SHIPPED' || (o.fulfillment_status || o.order_status) === 'OUT_FOR_DELIVERY').length,
       delivered: allOrders.filter((o) => (o.fulfillment_status || o.order_status) === 'DELIVERED').length,
       cancelled: allOrders.filter((o) => o.fulfillment_status === 'CANCELLED' || o.order_status === 'CANCELLED').length,
       blocked: allOrders.filter((o) => o.order_status === 'BLOCKED_INTEGRITY_EXCEPTION' || o.order_status === 'BLOCKED').length,
@@ -1326,14 +1438,13 @@ router.get('/analytics', async (req, res, next) => {
     const prodRes = await query('SELECT COUNT(*) as total FROM products WHERE merchant_id = $1 AND (is_test_lab = false OR is_test_lab IS NULL)', [merchantId]);
     const totalProducts = parseInt(prodRes.rows[0]?.total || '0', 10);
 
-    const baseCount = Math.max(totalProducts, totalIntents, completedOrdersCount, 1);
     const funnel = [
       { stage: 'Active Catalog SKUs', count: totalProducts, percentage: 100 },
       { stage: 'Purchase Intents Initiated', count: totalIntents, percentage: totalProducts > 0 ? Math.min(100, Math.round((totalIntents / totalProducts) * 100)) : 100 },
       { stage: 'Policy & Safety Approved', count: eligibleIntents, percentage: totalIntents > 0 ? Math.round((eligibleIntents / totalIntents) * 100) : 100 },
       { stage: 'Payment Verified & Captured', count: completedOrdersCount, percentage: totalIntents > 0 ? Math.round((completedOrdersCount / totalIntents) * 100) : 100 },
       { stage: 'Orders Created in Ledger', count: allOrders.length, percentage: totalIntents > 0 ? Math.round((allOrders.length / totalIntents) * 100) : 100 },
-      { stage: 'Completed AI Purchases', count: completedOrdersCount, percentage: totalIntents > 0 ? Math.round((completedOrdersCount / totalIntents) * 100) : 100 },
+      { stage: 'Delivered Orders', count: outcomes.delivered, percentage: totalIntents > 0 ? Math.round((outcomes.delivered / totalIntents) * 100) : 100 },
     ];
 
     // 5. Revenue by Brand
@@ -1354,21 +1465,30 @@ router.get('/analytics', async (req, res, next) => {
     res.json({
       hasStore: true,
       environment: env.APP_ENV.toUpperCase(),
-      paymentMode: 'TEST_SANDBOX_HMAC',
+      isLive: Boolean(env.isLiveMode),
+      paymentMode: env.isLiveMode ? 'LIVE' : 'TEST_SANDBOX_HMAC',
       timeRange: {
         range: timeRange,
         from: fromDate,
         to: now.toISOString(),
       },
       summary: {
+        grossRevenue: aiOriginatedRevenue,
         aiOriginatedRevenue,
+        netRevenue,
+        refundedRevenue,
         aiOriginatedOrders: completedOrdersCount,
+        successfulPaymentsCount: completedOrdersCount,
+        totalOrdersCreated: allOrders.length,
+        pendingOrdersCount: outcomes.confirmed + outcomes.processing + outcomes.packed,
+        shippedOrdersCount: outcomes.shipped,
+        deliveredOrdersCount: outcomes.delivered,
         averageOrderValue,
         conversionRate,
         conversionFraction,
         upsellRevenueContribution: 0,
         upsellPercentage: 0,
-        upsellStatus: 'Not yet measured',
+        upsellStatus: 'Unmeasured (Bundle API inactive)',
       },
       funnel,
       outcomes,

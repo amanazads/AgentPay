@@ -101,7 +101,7 @@ export async function dispatchCommerceNotification({
   }
 }
 
-function getNotificationContent(eventType, data = {}) {
+export function getNotificationContent(eventType, data = {}) {
   const num = data.orderNumber || 'Order';
   const amt = data.totalAmount ? `₹${parseFloat(data.totalAmount).toLocaleString('en-IN')}` : '';
 
@@ -109,32 +109,32 @@ function getNotificationContent(eventType, data = {}) {
     case 'ORDER_CONFIRMED':
       return {
         subject: `Order Confirmed: ${num}`,
-        message: `Your autonomous purchase for ${amt} has been confirmed and dispatched to the merchant.`,
+        message: `Your autonomous purchase for ${amt} has been confirmed and queued for merchant warehouse processing.`,
       };
     case 'ORDER_PROCESSING':
       return {
         subject: `Order Processing: ${num}`,
-        message: `Merchant has begun preparing your items.`,
+        message: `Merchant warehouse has begun preparing your items.`,
       };
     case 'ORDER_PACKED':
       return {
         subject: `Order Packed: ${num}`,
-        message: `Your package is sealed and labeled for carrier dispatch.`,
+        message: `Items securely packed and labeled for shipment dispatch.`,
       };
     case 'ORDER_SHIPPED':
       return {
-        subject: `Order Shipped: ${num}`,
-        message: `Package in transit via ${data.carrier || 'AgentPay Express'} (Tracking: ${data.trackingNumber || 'Active'}).`,
+        subject: `Order Shipped (Simulated): ${num}`,
+        message: `Package dispatched via ${data.carrier || 'Simulated Courier (Demo)'} (Demo Tracking: ${data.trackingNumber || 'SIM-TRK'}). Note: Simulated fulfillment active; no physical courier dispatched.`,
       };
     case 'ORDER_OUT_FOR_DELIVERY':
       return {
-        subject: `Out for Delivery: ${num}`,
-        message: `Courier is out for final delivery to your confirmed address today.`,
+        subject: `Out for Delivery (Simulated): ${num}`,
+        message: `Simulated fulfillment update: Package marked out for delivery in demo environment.`,
       };
     case 'ORDER_DELIVERED':
       return {
-        subject: `Delivered: ${num}`,
-        message: `Package successfully delivered. Thank you for shopping with AgentPay!`,
+        subject: `Delivered (Simulated): ${num}`,
+        message: `Simulated fulfillment complete: Package marked delivered in demo lifecycle.`,
       };
     case 'PRICE_SURGE_DETECTED':
       return {

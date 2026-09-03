@@ -41,7 +41,7 @@ export default function MerchantOrders() {
       setFulfilling(true);
       await api.fulfillMerchantOrder(orderId, {
         targetStatus,
-        carrier: 'AgentPay Test Logistics (Simulated Courier)',
+        carrier: 'Simulated Courier (Demo)',
       });
       await fetchOrders();
       if (selectedOrder && selectedOrder.id === orderId) {
@@ -87,15 +87,18 @@ export default function MerchantOrders() {
     if (activeFilter === 'PROCESSING') return o.fulfillmentStatus === 'PROCESSING';
     if (activeFilter === 'PACKED') return o.fulfillmentStatus === 'PACKED';
     if (activeFilter === 'SHIPPED') return o.fulfillmentStatus === 'SHIPPED' || o.fulfillmentStatus === 'OUT_FOR_DELIVERY';
-    if (activeFilter === 'DELIVERED') return o.fulfillmentStatus === 'DELIVERED' || o.fulfillmentStatus === 'COMPLETED';
+    if (activeFilter === 'DELIVERED') return o.fulfillmentStatus === 'DELIVERED';
     if (activeFilter === 'CANCELLED') return o.fulfillmentStatus === 'CANCELLED' || o.orderStatus === 'BLOCKED_INTEGRITY_EXCEPTION';
     return true;
   });
 
   const totalOrdersCount = summary?.totalOrders ?? orders.length;
-  const confirmedCount = summary?.confirmedCount ?? orders.filter((o) => o.fulfillmentStatus === 'CONFIRMED').length;
-  const inFulfillmentCount = (summary?.processingCount ?? 0) + (summary?.packedCount ?? 0);
-  const shippedCount = (summary?.shippedCount ?? 0) + (summary?.deliveredCount ?? 0) + (summary?.completedCount ?? 0);
+  const processingCount = summary?.processingCount ?? orders.filter((o) => o.fulfillmentStatus === 'PROCESSING').length;
+  const packedCount = summary?.packedCount ?? orders.filter((o) => o.fulfillmentStatus === 'PACKED').length;
+  const inFulfillmentCount = processingCount + packedCount;
+  const shippedOnlyCount = summary?.shippedCount ?? orders.filter((o) => o.fulfillmentStatus === 'SHIPPED' || o.fulfillmentStatus === 'OUT_FOR_DELIVERY').length;
+  const deliveredOnlyCount = summary?.deliveredCount ?? orders.filter((o) => o.fulfillmentStatus === 'DELIVERED').length;
+  const shippedCount = shippedOnlyCount + deliveredOnlyCount;
   const cancelledCount = (summary?.cancelledCount ?? 0) + (summary?.blockedCount ?? 0);
 
   return (
@@ -150,10 +153,10 @@ export default function MerchantOrders() {
         {[
           { key: 'ALL', label: `All Orders (${orders.length})` },
           { key: 'CONFIRMED', label: `Confirmed (${confirmedCount})` },
-          { key: 'PROCESSING', label: 'Processing' },
-          { key: 'PACKED', label: 'Packed' },
-          { key: 'SHIPPED', label: 'Shipped' },
-          { key: 'DELIVERED', label: 'Delivered' },
+          { key: 'PROCESSING', label: `Processing (${processingCount})` },
+          { key: 'PACKED', label: `Packed (${packedCount})` },
+          { key: 'SHIPPED', label: `Shipped (${shippedOnlyCount})` },
+          { key: 'DELIVERED', label: `Delivered (${deliveredOnlyCount})` },
           { key: 'CANCELLED', label: `Cancelled (${cancelledCount})` },
         ].map((tab) => (
           <button
@@ -325,7 +328,7 @@ export default function MerchantOrders() {
                       onClick={() => handleAdvanceFulfillment(selectedOrder.id, 'SHIPPED')}
                       icon={<Icons.Layers size={14} />}
                     >
-                      Dispatch & Ship (Assign Courier Tracking)
+                      Dispatch (Simulated Courier)
                     </Button>
                   )}
 
@@ -337,7 +340,7 @@ export default function MerchantOrders() {
                       onClick={() => handleAdvanceFulfillment(selectedOrder.id, 'OUT_FOR_DELIVERY')}
                       icon={<Icons.Activity size={14} />}
                     >
-                      Mark Out for Delivery
+                      Mark Out for Delivery (Simulated)
                     </Button>
                   )}
 
@@ -349,7 +352,7 @@ export default function MerchantOrders() {
                       onClick={() => handleAdvanceFulfillment(selectedOrder.id, 'DELIVERED')}
                       icon={<Icons.Check size={14} />}
                     >
-                      Confirm Delivery
+                      Confirm Delivery (Simulated)
                     </Button>
                   )}
 
@@ -373,14 +376,38 @@ export default function MerchantOrders() {
               </div>
             )}
 
+            {/* Simulated Fulfillment Notice */}
+            <div style={{ padding: '0.625rem 0.875rem', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, fontSize: '0.75rem', color: '#1e40af', lineHeight: 1.4 }}>
+              <strong>Simulated Fulfillment Lifecycle:</strong> Status updates execute software state transitions in this demo sandbox. Tracking tokens are simulated; no physical 3PL carrier is dispatched.
+            </div>
+
             {/* Canonical Technical Metadata */}
             <div className="mono" style={{ padding: '0.875rem', backgroundColor: 'var(--bg-subtle)', borderRadius: 'var(--radius-md)', fontSize: '0.75rem', lineHeight: 1.6, color: 'var(--text-muted)' }}>
               <div><strong>Order Number:</strong> {selectedOrder.orderNumber}</div>
               <div><strong>Purchase Intent ID:</strong> {selectedOrder.purchaseIntentId || 'N/A'}</div>
               <div><strong>Transaction ID:</strong> {selectedOrder.transactionId || selectedOrder.paymentId || 'N/A'}</div>
               <div><strong>Quote ID:</strong> {selectedOrder.quoteId || 'QUOTE-SNAPSHOT-ACTIVE'}</div>
-              <div><strong>Tracking Number:</strong> {selectedOrder.trackingNumber || (['SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(selectedOrder.fulfillmentStatus) ? selectedOrder.trackingNumber : 'Assigned upon courier dispatch')}</div>
-              <div><strong>Carrier:</strong> {selectedOrder.carrier || 'AgentPay Express Logistics'}</div>
+              <div>
+                <strong>Tracking Number:</strong>{' '}
+                {selectedOrder.trackingNumber ? (
+                  <span>
+                    {selectedOrder.trackingNumber}{' '}
+                    <span style={{ fontSize: '0.6875rem', backgroundColor: '#e0e7ff', color: '#3730a3', padding: '1px 6px', borderRadius: 4, fontWeight: 600 }}>
+                      Simulated / Demo Tracking
+                    </span>
+                  </span>
+                ) : (
+                  <span style={{ color: '#64748b' }}>Not yet assigned (Pending shipment)</span>
+                )}
+              </div>
+              <div>
+                <strong>Carrier:</strong>{' '}
+                {['SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(selectedOrder.fulfillmentStatus) ? (
+                  <span>{selectedOrder.carrier || 'Simulated Courier (Demo)'} <span style={{ fontSize: '0.6875rem', color: '#64748b' }}>(Simulated)</span></span>
+                ) : (
+                  <span style={{ color: '#64748b' }}>Unassigned (Awaiting dispatch)</span>
+                )}
+              </div>
               <div><strong>Payment Rails:</strong> Razorpay (HMAC-SHA256 Cryptographically Verified)</div>
               <div><strong>Inventory Accounting:</strong> Atomic reservation committed (Stock decremented)</div>
               {selectedOrder.cancellationReason && (

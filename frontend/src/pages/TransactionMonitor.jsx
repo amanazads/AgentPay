@@ -119,9 +119,15 @@ export default function TransactionMonitor() {
                         {formatCurrency(tx.amount)}
                       </td>
                       <td>
-                        <span className={`badge-status ${tx.status === 'success' || tx.status === 'authorized' ? 'success' : tx.status === 'blocked' ? 'danger' : 'warning'}`}>
-                          {tx.status}
-                        </span>
+                        {(() => {
+                          const isSettled = (tx.status === 'success' || tx.status === 'completed') && tx.payment_verified !== false;
+                          const isFailed = tx.status === 'blocked' || tx.status === 'failed';
+                          return (
+                            <span className={`badge-status ${isSettled ? 'success' : isFailed ? 'danger' : 'warning'}`}>
+                              {isSettled ? 'Settled / Verified' : tx.status === 'payment_pending' ? 'Payment Pending' : tx.status === 'authorized' ? 'Authorized (Pending Settlement)' : tx.status}
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td style={{ textAlign: 'right', fontSize: '0.75rem', color: 'var(--text-subtle)' }}>
                         Inspect →
@@ -134,12 +140,15 @@ export default function TransactionMonitor() {
 
             {/* Mobile Card View */}
             <div className="txn-mobile-cards">
-              {filteredTransactions.map((tx) => (
+              {filteredTransactions.map((tx) => {
+                const isSettled = (tx.status === 'success' || tx.status === 'completed') && tx.payment_verified !== false;
+                const isFailed = tx.status === 'blocked' || tx.status === 'failed';
+                return (
                 <div key={tx.id} className="txn-card-item" onClick={() => setSelectedTx(tx)}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>{tx.product_name || 'Procurement Item'}</span>
-                    <span className={`badge-status ${tx.status === 'success' ? 'success' : tx.status === 'blocked' ? 'danger' : 'warning'}`}>
-                      {tx.status}
+                    <span className={`badge-status ${isSettled ? 'success' : isFailed ? 'danger' : 'warning'}`}>
+                      {isSettled ? 'Settled' : tx.status === 'payment_pending' ? 'Pending' : tx.status}
                     </span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>

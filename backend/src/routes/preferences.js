@@ -11,7 +11,7 @@ import { requireAuth, requireBuyer } from '../middleware/authMiddleware.js';
 const router = Router();
 
 // GET /api/preferences — Get authoritative preferences and spend accounting for current user (Protected)
-router.get('/', requireAuth, async (req, res, next) => {
+router.get('/', requireAuth, requireBuyer, async (req, res, next) => {
   try {
     const userId = getUserIdFromRequest(req);
     const spendingSummary = await getSpendingSummary(userId);
@@ -48,7 +48,7 @@ router.get('/', requireAuth, async (req, res, next) => {
 });
 
 // POST /api/preferences — Save preferences, validate boundaries, increment version, and record audit history
-router.post('/', requireAuth, async (req, res, next) => {
+router.post('/', requireAuth, requireBuyer, async (req, res, next) => {
   try {
     const userId = getUserIdFromRequest(req);
     const {

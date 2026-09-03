@@ -95,14 +95,18 @@ export default function Purchases() {
   }));
 
   const orderItems = purchases.map((p) => {
-    const fulfillmentStatus = (p.fulfillment_status || p.order_status || 'CONFIRMED').toUpperCase();
+    const rawFulfillment = (p.fulfillment_status || p.order_status || '').toUpperCase();
+    const isReconcile = p.status === 'RECONCILIATION_REQUIRED' || p.payment_status === 'RECONCILIATION_REQUIRED' || rawFulfillment === 'RECONCILIATION_REQUIRED';
+    const isFailed = p.status === 'PAYMENT_FAILED' || p.payment_status === 'FAILED';
+    const isPending = p.status === 'PAYMENT_PENDING' || p.payment_status === 'PAYMENT_PENDING';
+    const fulfillmentStatus = isReconcile ? 'RECONCILIATION_REQUIRED' : isFailed ? 'FAILED' : isPending ? 'PAYMENT_PENDING' : (rawFulfillment || 'CONFIRMED');
     return {
       ...p,
       isApproval: false,
       isOrder: p.is_order !== false,
-      status: p.status === 'BLOCKED' ? 'BLOCKED' : fulfillmentStatus,
+      status: p.status === 'BLOCKED' ? 'BLOCKED' : isReconcile ? 'RECONCILIATION_REQUIRED' : isFailed ? 'FAILED' : isPending ? 'PAYMENT_PENDING' : fulfillmentStatus,
       fulfillment_status: fulfillmentStatus,
-      payment_status: p.payment_status || 'VERIFIED',
+      payment_status: p.payment_status || (p.is_order ? 'VERIFIED' : 'PENDING'),
     };
   });
 
@@ -112,7 +116,7 @@ export default function Purchases() {
     if (filter === 'all') return !item.isApproval && item.status !== 'BLOCKED';
     if (filter === 'confirmed') return item.isOrder && item.fulfillment_status === 'CONFIRMED';
     if (filter === 'processing') return item.isOrder && (item.fulfillment_status === 'PROCESSING' || item.fulfillment_status === 'PACKED');
-    if (filter === 'shipped') return item.isOrder && item.fulfillment_status === 'SHIPPED';
+    if (filter === 'shipped') return item.isOrder && (item.fulfillment_status === 'SHIPPED' || item.fulfillment_status === 'OUT_FOR_DELIVERY');
     if (filter === 'delivered') return item.isOrder && item.fulfillment_status === 'DELIVERED';
     if (filter === 'approval_required') return item.isApproval || item.status === 'APPROVAL_REQUIRED';
     if (filter === 'blocked') return item.status === 'BLOCKED' || item.status === 'FAILED';
@@ -122,23 +126,34 @@ export default function Purchases() {
   const getStatusDisplay = (item) => {
     if (item.isApproval) return { label: 'Needs Approval', status: 'APPROVAL_REQUIRED' };
     if (item.status === 'BLOCKED') return { label: 'Blocked by Safety Guard', status: 'BLOCKED' };
+    if (item.status === 'RECONCILIATION_REQUIRED' || item.fulfillment_status === 'RECONCILIATION_REQUIRED' || item.payment_status === 'RECONCILIATION_REQUIRED') {
+      return { label: 'Payment status pending / reconciliation required', status: 'RECONCILIATION_REQUIRED' };
+    }
+    if (item.status === 'PAYMENT_PENDING' || item.payment_status === 'PAYMENT_PENDING') {
+      return { label: 'Payment Pending', status: 'PAYMENT_PENDING' };
+    }
+    if (item.status === 'FAILED' || item.status === 'PAYMENT_FAILED' || item.payment_status === 'FAILED') {
+      return { label: 'Payment Failed', status: 'FAILED' };
+    }
     
     switch (item.fulfillment_status) {
       case 'CONFIRMED':
       case 'ORDER_CONFIRMED':
-        return { label: 'Order Confirmed', status: 'CONFIRMED' };
+        return { label: 'Order Confirmed (Awaiting Warehouse Processing)', status: 'CONFIRMED' };
       case 'PROCESSING':
         return { label: 'Merchant Processing', status: 'PROCESSING' };
       case 'PACKED':
-        return { label: 'Package Assembly', status: 'PACKED' };
+        return { label: 'Packed & Sealed', status: 'PACKED' };
       case 'SHIPPED':
-        return { label: 'Shipped (In Transit)', status: 'SHIPPED' };
+        return { label: 'Shipped (Simulated Transit)', status: 'SHIPPED' };
       case 'OUT_FOR_DELIVERY':
-        return { label: 'Out for Delivery', status: 'SHIPPED' };
+        return { label: 'Out for Delivery (Simulated)', status: 'SHIPPED' };
       case 'DELIVERED':
-        return { label: 'Delivered', status: 'DELIVERED' };
+        return { label: 'Delivered (Simulated)', status: 'DELIVERED' };
+      case 'CANCELLED':
+        return { label: 'Cancelled', status: 'CANCELLED' };
       default:
-        return { label: item.fulfillment_status || 'Confirmed', status: 'CONFIRMED' };
+        return { label: item.fulfillment_status || 'Pending', status: item.fulfillment_status || 'PENDING' };
     }
   };
 
@@ -168,7 +183,7 @@ export default function Purchases() {
           { key: 'all', label: `All Executed Purchases (${orderItems.filter((i) => i.status !== 'BLOCKED').length})` },
           { key: 'confirmed', label: `Confirmed (${orderItems.filter((i) => i.fulfillment_status === 'CONFIRMED').length})` },
           { key: 'processing', label: `Processing (${orderItems.filter((i) => ['PROCESSING', 'PACKED'].includes(i.fulfillment_status)).length})` },
-          { key: 'shipped', label: `Shipped (${orderItems.filter((i) => i.fulfillment_status === 'SHIPPED').length})` },
+          { key: 'shipped', label: `Shipped (${orderItems.filter((i) => ['SHIPPED', 'OUT_FOR_DELIVERY'].includes(i.fulfillment_status)).length})` },
           { key: 'delivered', label: `Delivered (${orderItems.filter((i) => i.fulfillment_status === 'DELIVERED').length})` },
           { key: 'approval_required', label: `Needs Approval (${approvals.length})` },
           { key: 'blocked', label: 'Blocked / Stopped' },
@@ -344,8 +359,8 @@ export default function Purchases() {
                     { state: 'CONFIRMED', title: 'Order Confirmed & Payment Captured', completed: true, timestamp: selectedItem.created_at, description: 'Autonomous payment authorized & verified.' },
                     { state: 'PROCESSING', title: 'Merchant Processing', completed: ['PROCESSING', 'PACKED', 'SHIPPED', 'DELIVERED'].includes(selectedItem.fulfillment_status), description: 'Merchant fulfillment system notified.' },
                     { state: 'PACKED', title: 'Package Assembly', completed: ['PACKED', 'SHIPPED', 'DELIVERED'].includes(selectedItem.fulfillment_status), description: 'Items packed securely.' },
-                    { state: 'SHIPPED', title: 'Dispatched to Carrier', completed: ['SHIPPED', 'DELIVERED'].includes(selectedItem.fulfillment_status), description: selectedItem.tracking_number ? `In transit with ${selectedItem.carrier || 'AgentPay Logistics'} (${selectedItem.tracking_number})` : 'Dispatched to courier.' },
-                    { state: 'DELIVERED', title: 'Delivered', completed: selectedItem.fulfillment_status === 'DELIVERED', description: 'Delivered to confirmed destination.' },
+                    { state: 'SHIPPED', title: 'Dispatched to Carrier (Simulated)', completed: ['SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(selectedItem.fulfillment_status), description: selectedItem.tracking_number ? `Simulated transit with ${selectedItem.carrier || 'Simulated Courier (Demo)'} (${selectedItem.tracking_number})` : 'Dispatched to simulated courier.' },
+                    { state: 'DELIVERED', title: 'Delivered (Simulated)', completed: selectedItem.fulfillment_status === 'DELIVERED', description: 'Delivered to confirmed destination (Simulated lifecycle).' },
                   ]).map((step, idx) => (
                     <div key={idx} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
                       <span style={{
@@ -378,12 +393,40 @@ export default function Purchases() {
               </div>
             )}
 
+            {/* Simulated Fulfillment Environment Notice */}
+            {!selectedItem.isApproval && (
+              <div style={{ padding: '0.625rem 0.875rem', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, fontSize: '0.75rem', color: '#1e40af', lineHeight: 1.4 }}>
+                <strong>Fulfillment Notice:</strong> This environment operates with simulated fulfillment. Tracking tokens and carrier transit are demo events; no physical 3PL courier is dispatched.
+              </div>
+            )}
+
             {/* Carrier & Payment Technical Details */}
             {!selectedItem.isApproval && (
               <div className="mono" style={{ padding: '0.875rem', backgroundColor: 'var(--bg-subtle)', borderRadius: 'var(--radius-md)', fontSize: '0.75rem', lineHeight: 1.6, color: 'var(--text-muted)' }}>
-                <div><strong>Tracking Number:</strong> {selectedItem.tracking_number || (['SHIPPED', 'DELIVERED'].includes(selectedItem.fulfillment_status) ? 'TRK-ASSIGNED' : 'Assigned upon courier dispatch')}</div>
-                <div><strong>Carrier:</strong> {selectedItem.carrier || 'AgentPay Logistics'}</div>
-                <div><strong>Payment Status:</strong> Paid (HMAC-SHA256 Verified)</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <strong>Tracking Number:</strong>{' '}
+                  {selectedItem.tracking_number ? (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontWeight: 700, color: '#0f172a' }}>{selectedItem.tracking_number}</span>
+                      <span style={{ fontSize: '0.6875rem', backgroundColor: '#e0e7ff', color: '#3730a3', padding: '1px 6px', borderRadius: 4, fontWeight: 600 }}>
+                        Simulated / Demo Tracking
+                      </span>
+                    </span>
+                  ) : (
+                    <span style={{ color: '#64748b' }}>Not yet assigned (Pending shipment)</span>
+                  )}
+                </div>
+                <div style={{ marginTop: 4 }}>
+                  <strong>Carrier:</strong>{' '}
+                  {['SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(selectedItem.fulfillment_status) ? (
+                    <span>{selectedItem.carrier || 'Simulated Courier (Demo)'} <span style={{ fontSize: '0.6875rem', color: '#64748b' }}>(Simulated)</span></span>
+                  ) : (
+                    <span style={{ color: '#64748b' }}>Unassigned (Awaiting dispatch)</span>
+                  )}
+                </div>
+                <div style={{ marginTop: 4 }}>
+                  <strong>Payment Status:</strong> Paid (HMAC-SHA256 Verified)
+                </div>
               </div>
             )}
 

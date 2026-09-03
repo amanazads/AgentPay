@@ -14,7 +14,6 @@ export const OrderFulfillmentStates = {
   SHIPPED: 'SHIPPED',
   OUT_FOR_DELIVERY: 'OUT_FOR_DELIVERY',
   DELIVERED: 'DELIVERED',
-  COMPLETED: 'DELIVERED', // normalized
   CANCELLED: 'CANCELLED',
   REFUND_PENDING: 'REFUND_PENDING',
   REFUNDED: 'REFUNDED',
@@ -37,11 +36,13 @@ export const ALLOWED_FULFILLMENT_TRANSITIONS = {
     OrderFulfillmentStates.PACKED,
     OrderFulfillmentStates.CANCELLED,
     OrderFulfillmentStates.REFUND_PENDING,
+    OrderFulfillmentStates.RECONCILIATION_REQUIRED,
   ],
   [OrderFulfillmentStates.PACKED]: [
     OrderFulfillmentStates.SHIPPED,
     OrderFulfillmentStates.CANCELLED,
     OrderFulfillmentStates.REFUND_PENDING,
+    OrderFulfillmentStates.RECONCILIATION_REQUIRED,
   ],
   [OrderFulfillmentStates.SHIPPED]: [
     OrderFulfillmentStates.OUT_FOR_DELIVERY,
@@ -83,11 +84,12 @@ export function generateOrderNumber() {
 }
 
 /**
- * Generate tracking number (e.g. TRK-MTAFRQZ3-5278)
+ * Generate tracking number (explicitly labeled SIM-TRK- in simulation mode)
  */
-export function generateTrackingNumber() {
+export function generateTrackingNumber(isSimulated = true) {
   const rand = Math.floor(1000 + Math.random() * 9000);
-  return `TRK-${Date.now().toString(36).toUpperCase()}-${rand}`;
+  const prefix = isSimulated ? 'SIM-TRK' : 'TRK';
+  return `${prefix}-${Date.now().toString(36).toUpperCase()}-${rand}`;
 }
 
 /**
@@ -112,7 +114,7 @@ export async function createOrder({
   deliveryAddress = { name: 'AgentPay Buyer', address_line1: '742 Tech Park', city: 'Bengaluru', state: 'Karnataka', pincode: '560100' },
   deliveryMethod = 'STANDARD',
   estimatedDeliveryDate,
-  carrier = 'AgentPay Express Logistics',
+  carrier = null,
   productName,
   productSku,
   productBrand,
@@ -178,42 +180,42 @@ export async function createOrder({
     {
       state: 'CONFIRMED',
       title: 'Order Confirmed',
-      description: 'Autonomous purchase confirmed and payment captured via verified payment infrastructure.',
+      description: 'Autonomous purchase confirmed and payment captured. Awaiting merchant warehouse processing.',
       timestamp: now,
       completed: true,
     },
     {
       state: 'PROCESSING',
       title: 'Merchant Processing',
-      description: 'Merchant fulfillment system notified and preparing order items.',
+      description: 'Merchant warehouse system notified and preparing order items.',
       timestamp: null,
       completed: false,
     },
     {
       state: 'PACKED',
       title: 'Package Assembly',
-      description: 'Items securely packed and prepared for courier dispatch.',
+      description: 'Items securely packed and prepared for dispatch.',
       timestamp: null,
       completed: false,
     },
     {
       state: 'SHIPPED',
-      title: 'Dispatched to Carrier',
-      description: `Package handed over to carrier.`,
+      title: 'Dispatched to Carrier (Simulated)',
+      description: 'Package assigned to Simulated Courier (Demo - Simulated dispatch; no physical 3PL dispatched).',
       timestamp: null,
       completed: false,
     },
     {
       state: 'OUT_FOR_DELIVERY',
-      title: 'Out for Delivery',
-      description: 'Courier out for final delivery to destination address.',
+      title: 'Out for Delivery (Simulated)',
+      description: 'Simulated delivery route progression in demo environment.',
       timestamp: null,
       completed: false,
     },
     {
       state: 'DELIVERED',
-      title: 'Delivered',
-      description: 'Package successfully delivered to buyer.',
+      title: 'Delivered (Simulated)',
+      description: 'Package marked delivered in simulated fulfillment lifecycle.',
       timestamp: null,
       completed: false,
     },
@@ -258,7 +260,7 @@ export async function createOrder({
       JSON.stringify(deliveryAddress),
       deliveryMethod,
       estimatedDeliveryDate || new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
-      carrier,
+      carrier || null,
       JSON.stringify(initialTimeline),
       environment,
       paymentMode,
@@ -375,16 +377,41 @@ export async function transitionOrderFulfillment(orderId, targetStatus, { mercha
   let timeline = Array.isArray(order.timeline) ? [...order.timeline] : [];
 
   // Authentic tracking and carrier assignment
-  let assignedTracking = trackingNumber !== undefined ? trackingNumber : (order.tracking_number || (targetStatus === 'SHIPPED' ? generateTrackingNumber() : null));
-  let assignedCarrier = carrier !== undefined ? carrier : (order.carrier || 'AgentPay Express Logistics');
+  const isSimulated = order.environment !== 'LIVE';
+  const isShippingStage = ['SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(targetStatus);
+
+  let assignedTracking = trackingNumber !== undefined
+    ? trackingNumber
+    : (order.tracking_number || (targetStatus === 'SHIPPED' ? (isSimulated ? generateTrackingNumber(true) : null) : null));
+  let assignedCarrier = carrier !== undefined
+    ? carrier
+    : (order.carrier || (isShippingStage ? (isSimulated ? 'Simulated Courier (Demo)' : null) : null));
 
   timeline = timeline.map((step) => {
     if (step.state === targetStatus || (step.state === 'CONFIRMED' && targetStatus === 'ORDER_CONFIRMED')) {
+      let stepDesc = reason;
+      if (!stepDesc) {
+        if (targetStatus === 'SHIPPED') {
+          stepDesc = isSimulated
+            ? `Dispatched via ${assignedCarrier || 'Simulated Courier (Demo)'} (Demo Tracking: ${assignedTracking || 'SIM-TRK'}). No physical carrier dispatched.`
+            : `Dispatched to carrier ${assignedCarrier || 'Carrier'} (Tracking: ${assignedTracking}).`;
+        } else if (targetStatus === 'OUT_FOR_DELIVERY') {
+          stepDesc = isSimulated
+            ? 'Simulated courier progression: Out for delivery (Demo mode).'
+            : 'Courier out for final delivery to destination address.';
+        } else if (targetStatus === 'DELIVERED') {
+          stepDesc = isSimulated
+            ? 'Simulated delivery confirmed. Completed demo fulfillment cycle.'
+            : 'Package successfully delivered to buyer.';
+        } else {
+          stepDesc = step.description;
+        }
+      }
       return {
         ...step,
         completed: true,
         timestamp: now,
-        description: reason || (targetStatus === 'SHIPPED' && assignedTracking ? `Assigned to ${assignedCarrier || 'Carrier'} (${assignedTracking}).` : step.description),
+        description: stepDesc,
       };
     }
     return step;
@@ -607,6 +634,7 @@ export async function getOrdersForMerchant(merchantId) {
     LEFT JOIN users u ON o.user_id = u.id
     LEFT JOIN invoices inv ON inv.order_id = o.id
     WHERE o.merchant_id = $1
+      AND (p.is_test_lab = false OR p.is_test_lab IS NULL)
     ORDER BY o.created_at DESC
   `, [merchantId]);
   return res.rows;
