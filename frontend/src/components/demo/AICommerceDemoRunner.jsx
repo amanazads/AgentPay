@@ -409,7 +409,9 @@ export default function AICommerceDemoRunner({ initialProductId = null, initialS
               </div>
               <div className="summary-col">
                 <div className="summary-lbl">Order Total</div>
-                <div className="summary-val highlighted">₹{execResult.financialSummary.totalDemoGMV?.toLocaleString('en-IN')}</div>
+                <div className="summary-val highlighted">
+                  ₹{(execResult.financialSummary.totalDemoGMV ?? execResult.financialSummary.totalGMV ?? execResult.financialSummary.totalAmount ?? execResult.financialSummary.subtotal ?? 0).toLocaleString('en-IN')}
+                </div>
               </div>
               <div className="summary-col">
                 <div className="summary-lbl">Payment Status</div>
