@@ -3,6 +3,57 @@
 ## 1. System Overview
 AgentPay is an autonomous AI commerce authorization and policy control plane. It transforms natural-language buyer procurement requests into authorized, cryptographically verified orders across connected merchants and payment rails.
 
+```mermaid
+flowchart TD
+    subgraph USER_LAYER["1. User & Client Layer"]
+        UI["React SPA Frontend<br/>(AI Buyer / Merchant Portal / Live Monitor)"]
+    end
+
+    subgraph GATEWAY_LAYER["2. Gateway & Control Plane"]
+        GW["Express API Gateway & Auth Server<br/>(JWT • RBAC • Rate Limiter)"]
+        SM["Commerce Orchestrator & State Machine<br/>(24 Purchase States • 2-Phase Inventory)"]
+    end
+
+    subgraph AI_LAYER["3. AI Discovery & Reasoning"]
+        PG["Prompt Injection Guard<br/>(Pre-LLM Threat Detection)"]
+        AI["FastAPI AI Service<br/>(google-genai Client • Gemini 3.7 Flash)"]
+        CAT["Normalized Machine Catalog Feed<br/>(/api/ai/catalog • Schema agentpay.catalog.v1)"]
+    end
+
+    subgraph POLICY_LAYER["4. Policy & Risk Engine (Deterministic)"]
+        PE["13-Rule Deterministic Policy Engine<br/>(Spending Limits • Category • Merchant Tier)"]
+        RE["Explainable Risk Engine<br/>(0-100 Score • Velocity Locks • Anomaly Checks)"]
+    end
+
+    subgraph MERCHANT_LAYER["5. Merchant Store Engine"]
+        MC["Normalized Merchant Adapters<br/>(Cart • Time-Bound HMAC Quote • 2-Phase Lock)"]
+    end
+
+    subgraph PAYMENT_LAYER["6. Payment Rail Abstraction"]
+        RZP["Razorpay Test Rails & Webhooks<br/>(HMAC-SHA256 Signature Verification)"]
+    end
+
+    subgraph PERSISTENCE_LAYER["7. Persistence & Compliance"]
+        PGDB[("PostgreSQL Database<br/>(Orders • Invoices • Immutable Audit Trail)")]
+        RD[("Redis 7<br/>(Idempotency Locks & Leases)")]
+    end
+
+    UI -->|HTTPS / JWT| GW
+    GW --> SM
+    GW -->|Internal Auth Token| PG
+    PG -->|Clean Prompt| AI
+    AI -->|Discover| CAT
+    CAT -->|Authoritative Data| AI
+    AI -->|Structured Candidate Intent| SM
+    SM --> PE
+    SM --> RE
+    SM --> MC
+    SM -->|ALLOW| RZP
+    RZP -->|Verified Order| SM
+    SM --> PGDB
+    SM --> RD
+```
+
 ```
 +-------------------------------------------------------------------------+
 |                               USER LAYER                                |
