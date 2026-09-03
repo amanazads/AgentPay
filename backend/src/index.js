@@ -131,12 +131,32 @@ io.on('connection', (socket) => {
     socket.join(`agent:${agentId}`);
   });
 
+  socket.on('leave:agent', (agentId) => {
+    socket.leave(`agent:${agentId}`);
+  });
+
   socket.on('join:approvals', () => {
     socket.join('approvals');
   });
 
+  socket.on('leave:approvals', () => {
+    socket.leave('approvals');
+  });
+
   socket.on('join:dashboard', () => {
     socket.join('dashboard');
+  });
+
+  socket.on('leave:dashboard', () => {
+    socket.leave('dashboard');
+  });
+
+  socket.on('join:room', (room) => {
+    if (room && typeof room === 'string') socket.join(room);
+  });
+
+  socket.on('leave:room', (room) => {
+    if (room && typeof room === 'string') socket.leave(room);
   });
 
   socket.on('disconnect', () => {

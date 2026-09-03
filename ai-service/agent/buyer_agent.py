@@ -48,6 +48,71 @@ class AIBuyerAgent:
         self.memory = memory or AgentSafeMemory()
         self.model = gemini_model
 
+    async def interpret_with_gemini(self, message: str) -> Dict[str, Any]:
+        """
+        Invokes Gemini 1.5 Pro to interpret complex natural-language user queries into
+        structured procurement constraints.
+        
+        INVARIANTS:
+        1. Output is treated as UNTRUSTED DATA.
+        2. Merged with deterministic hard constraint parser.
+        3. Never trusted for financial authority, pricing, or policy decisions.
+        4. Safe fail-closed fallback to deterministic regex parser on any API failure/timeout.
+        """
+        deterministic_intent = self.parse_user_intent(message)
+        if not self.model:
+            return deterministic_intent
+
+        prompt = f"""You are AgentPay's AI Buyer Reasoning Engine.
+Extract the structured procurement parameters from the following user message:
+"{message}"
+
+Return ONLY a valid JSON object matching this schema:
+{{
+  "product_type": "power_bank | headphones | laptop | monitor | mouse | keyboard | chair | phone | other",
+  "category": "electronics | peripherals | furniture",
+  "max_budget": <number or null>,
+  "quantity": <integer>,
+  "brand": <string or null>,
+  "reasoning": "<concise explanation of user intent>"
+}}
+"""
+        try:
+            response = self.model.generate_content(prompt)
+            if response and response.text:
+                import json
+                clean_text = response.text.strip()
+                if "```json" in clean_text:
+                    clean_text = clean_text.split("```json")[1].split("```")[0].strip()
+                elif "```" in clean_text:
+                    clean_text = clean_text.split("```")[1].split("```")[0].strip()
+                
+                gemini_data = json.loads(clean_text)
+                if isinstance(gemini_data, dict):
+                    if gemini_data.get("product_type") and deterministic_intent.get("product_type") is None:
+                        deterministic_intent["product_type"] = str(gemini_data["product_type"]).lower()
+                    if gemini_data.get("category") and deterministic_intent.get("category") == "general":
+                        deterministic_intent["category"] = str(gemini_data["category"]).lower()
+                    if gemini_data.get("max_budget") and deterministic_intent.get("max_budget") is None:
+                        try:
+                            b = float(gemini_data["max_budget"])
+                            deterministic_intent["max_budget"] = b
+                            deterministic_intent["maxPrice"] = b
+                        except Exception:
+                            pass
+                    if gemini_data.get("quantity") and deterministic_intent.get("quantity", 1) == 1:
+                        try:
+                            deterministic_intent["quantity"] = int(gemini_data["quantity"])
+                        except Exception:
+                            pass
+                    if gemini_data.get("reasoning"):
+                        deterministic_intent["ai_reasoning"] = str(gemini_data["reasoning"])
+        except Exception as e:
+            # Graceful fallback to deterministic parsing
+            print(f"[Gemini Reasoning Fallback] {e}")
+
+        return deterministic_intent
+
     def parse_user_intent(self, message: str) -> Dict[str, Any]:
         msg_lower = message.lower()
         
@@ -319,8 +384,8 @@ class AIBuyerAgent:
         # 1. Threat check on user input
         guard_res = PromptInjectionGuard.detect_injection_threat(message)
         
-        # 2. Parse intent & extract hard constraints
-        intent_data = self.parse_user_intent(message)
+        # 2. Parse intent & extract hard constraints (Gemini Reasoning + Deterministic Grounding)
+        intent_data = await self.interpret_with_gemini(message)
         quantity = intent_data.get("quantity", 1)
         max_budget = intent_data.get("max_budget")
         

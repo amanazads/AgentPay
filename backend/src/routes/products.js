@@ -71,24 +71,6 @@ router.get('/', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// GET /api/products/:id — Get product detail
-router.get('/:id', async (req, res, next) => {
-  try {
-    const result = await query(`
-      SELECT p.*, m.name as merchant_name, m.is_verified as merchant_verified,
-             m.risk_level as merchant_risk_level, m.rating as merchant_rating
-      FROM products p
-      LEFT JOIN merchants m ON p.merchant_id = m.id
-      WHERE p.id = $1
-    `, [req.params.id]);
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Product not found' });
-    }
-    res.json({ product: result.rows[0] });
-  } catch (err) { next(err); }
-});
-
 // GET /api/products/compare — Compare multiple products
 router.get('/compare', async (req, res, next) => {
   try {
@@ -116,6 +98,24 @@ router.get('/categories/list', async (req, res, next) => {
   try {
     const result = await query('SELECT DISTINCT category FROM products ORDER BY category');
     res.json({ categories: result.rows.map(r => r.category) });
+  } catch (err) { next(err); }
+});
+
+// GET /api/products/:id — Get product detail
+router.get('/:id', async (req, res, next) => {
+  try {
+    const result = await query(`
+      SELECT p.*, m.name as merchant_name, m.is_verified as merchant_verified,
+             m.risk_level as merchant_risk_level, m.rating as merchant_rating
+      FROM products p
+      LEFT JOIN merchants m ON p.merchant_id = m.id
+      WHERE p.id::text = $1
+    `, [req.params.id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+    res.json({ product: result.rows[0] });
   } catch (err) { next(err); }
 });
 
