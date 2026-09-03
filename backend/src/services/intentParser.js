@@ -248,7 +248,8 @@ export function extractSpecificModelTerms(queryText, detectedBrand = null) {
     'charger', 'chargers', 'charging', 'pack', 'packs', 'backup', 'power',
     'enterprise', 'workstation', 'corporate', 'business', 'personal', 'home',
     'device', 'equipment', 'hardware', 'gadget', 'series', 'edition', 'version',
-    'inr', 'rs', 'rupees', 'model', 'specs', 'specifications'
+    'inr', 'rs', 'rupees', 'model', 'specs', 'specifications',
+    'high', 'quality', 'sound', 'audio', 'ear', 'head', 'noise', 'cancelling', 'cancellation', 'canceling'
   ];
   for (const f of fillers) {
     text = text.replace(new RegExp(`\\b${f}\\b`, 'gi'), ' ');

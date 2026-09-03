@@ -144,7 +144,8 @@ class AIBuyerAgent:
             'charger', 'chargers', 'charging', 'pack', 'packs', 'backup',
             'adapter', 'headphones', 'headphone', 'earphones', 'earbuds', 'laptop', 'monitor',
             'mouse', 'keyboard', 'chair', 'desk', 'phone', 'smartphone', 'device', 'item', 'items',
-            'unit', 'units', 'specs', 'specifications', 'model', 'equipment', 'hardware', 'mah', 'milliamp'
+            'unit', 'units', 'specs', 'specifications', 'model', 'equipment', 'hardware', 'mah', 'milliamp',
+            'high', 'quality', 'sound', 'audio', 'ear', 'head', 'noise', 'cancelling', 'cancellation', 'canceling'
         }
         words = [w for w in re.findall(r'[a-z0-9-]+', clean_text) if len(w) >= 2 and w not in fillers]
         required_model_terms = words if words else None
