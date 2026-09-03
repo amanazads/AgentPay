@@ -36,6 +36,50 @@ router.get('/', async (req, res, next) => {
   }
 });
 
+// GET /api/agents/:id/spending — Get today's spending scoped to owner
+router.get('/:id/spending', async (req, res, next) => {
+  try {
+    const userId = getUserIdFromRequest(req);
+    const uRes = await query('SELECT role FROM users WHERE id::text = $1', [userId]);
+    const role = (uRes.rows[0]?.role || '').toUpperCase();
+
+    const agentCheck = await query('SELECT owner_id FROM agents WHERE id = $1', [req.params.id]);
+    if (agentCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+    if (role !== 'ADMIN' && agentCheck.rows[0].owner_id && agentCheck.rows[0].owner_id !== userId) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+
+    const result = await query(`
+      SELECT COALESCE(SUM(amount), 0) as total_spent
+      FROM transactions
+      WHERE agent_id = $1
+        AND status IN ('payment_completed', 'verified', 'completed')
+        AND created_at >= CURRENT_DATE
+    `, [req.params.id]);
+
+    const policyResult = await query(`
+      SELECT p.daily_budget
+      FROM agents a
+      JOIN policies p ON a.policy_id = p.id
+      WHERE a.id = $1
+    `, [req.params.id]);
+
+    const totalSpent = parseFloat(result.rows[0]?.total_spent || 0);
+    const dailyBudget = parseFloat(policyResult.rows[0]?.daily_budget || 0);
+
+    res.json({
+      agentId: req.params.id,
+      totalSpentToday: totalSpent,
+      dailyBudget,
+      remaining: dailyBudget - totalSpent,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /api/agents/:id — Get agent details scoped to owner
 router.get('/:id', async (req, res, next) => {
   try {
@@ -65,28 +109,6 @@ router.get('/:id', async (req, res, next) => {
     }
 
     res.json({ agent });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// POST /api/agents — Create agent owned by authenticated user
-router.post('/', async (req, res, next) => {
-  try {
-    const userId = getUserIdFromRequest(req);
-    const { name, policy_id, description } = req.body || {};
-
-    if (!name) {
-      return res.status(400).json({ error: 'Agent name is required' });
-    }
-
-    const result = await query(`
-      INSERT INTO agents (name, owner_id, policy_id, description)
-      VALUES ($1, $2, $3, $4)
-      RETURNING *
-    `, [name, userId, policy_id || null, description || null]);
-
-    res.status(201).json({ agent: result.rows[0] });
   } catch (err) {
     next(err);
   }
@@ -136,45 +158,23 @@ router.patch('/:id', async (req, res, next) => {
   }
 });
 
-// GET /api/agents/:id/spending — Get today's spending scoped to owner
-router.get('/:id/spending', async (req, res, next) => {
+// POST /api/agents — Create agent owned by authenticated user
+router.post('/', async (req, res, next) => {
   try {
     const userId = getUserIdFromRequest(req);
-    const uRes = await query('SELECT role FROM users WHERE id::text = $1', [userId]);
-    const role = (uRes.rows[0]?.role || '').toUpperCase();
+    const { name, policy_id, description } = req.body || {};
 
-    const agentCheck = await query('SELECT owner_id FROM agents WHERE id = $1', [req.params.id]);
-    if (agentCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'Agent not found' });
-    }
-    if (role !== 'ADMIN' && agentCheck.rows[0].owner_id && agentCheck.rows[0].owner_id !== userId) {
-      return res.status(404).json({ error: 'Agent not found' });
+    if (!name) {
+      return res.status(400).json({ error: 'Agent name is required' });
     }
 
     const result = await query(`
-      SELECT COALESCE(SUM(amount), 0) as total_spent
-      FROM transactions
-      WHERE agent_id = $1
-        AND status IN ('payment_completed', 'verified')
-        AND created_at >= CURRENT_DATE
-    `, [req.params.id]);
+      INSERT INTO agents (name, owner_id, policy_id, description)
+      VALUES ($1, $2, $3, $4)
+      RETURNING *
+    `, [name, userId, policy_id || null, description || null]);
 
-    const policyResult = await query(`
-      SELECT p.daily_budget
-      FROM agents a
-      JOIN policies p ON a.policy_id = p.id
-      WHERE a.id = $1
-    `, [req.params.id]);
-
-    const totalSpent = parseFloat(result.rows[0]?.total_spent || 0);
-    const dailyBudget = parseFloat(policyResult.rows[0]?.daily_budget || 0);
-
-    res.json({
-      agentId: req.params.id,
-      totalSpentToday: totalSpent,
-      dailyBudget,
-      remaining: dailyBudget - totalSpent,
-    });
+    res.status(201).json({ agent: result.rows[0] });
   } catch (err) {
     next(err);
   }

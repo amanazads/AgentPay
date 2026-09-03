@@ -32,6 +32,7 @@ import buyerRoutes from './routes/buyerRoutes.js';
 import simulationCommerceRoutes from './routes/simulationCommerce.js';
 import webhookRoutes from './routes/webhooks.js';
 import judgeRoutes from './routes/judge.js';
+import policyRoutes from './routes/policies.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -114,6 +115,7 @@ app.use('/api/demo/commerce', simulationCommerceRoutes);
 app.use('/api/ai-commerce', simulationCommerceRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/judge', judgeRoutes);
+app.use('/api/policies', policyRoutes);
 
 // ============================================
 // Error handling

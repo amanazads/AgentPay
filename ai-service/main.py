@@ -1,4 +1,7 @@
-from fastapi import FastAPI, HTTPException
+import secrets
+from typing import Optional
+
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 from models.schemas import ChatRequest, ChatResponse
@@ -25,6 +28,24 @@ tools = AgentTools(base_url=settings.BACKEND_API_URL)
 memory = AgentSafeMemory()
 agent = AIBuyerAgent(tools=tools, memory=memory)
 
+def require_internal_token(
+    authorization: Optional[str] = Header(default=None),
+    x_agentpay_internal_token: Optional[str] = Header(default=None),
+    x_internal_token: Optional[str] = Header(default=None),
+):
+    expected = settings.AI_SERVICE_INTERNAL_TOKEN or settings.INTERNAL_TOKEN
+    if not expected:
+        return True
+
+    presented = x_agentpay_internal_token or x_internal_token or ""
+    if authorization and authorization.lower().startswith("bearer "):
+        presented = authorization.split(" ", 1)[1].strip()
+
+    if not secrets.compare_digest(presented, expected):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    return True
+
 @app.get("/health")
 async def health_check():
     gemini_configured = bool(settings.GEMINI_API_KEY and settings.GEMINI_MODEL and agent.model is not None)
@@ -40,7 +61,7 @@ async def health_check():
         "fallback_mode": "deterministic_catalog_grounding",
     }
 
-@app.post("/chat", response_model=ChatResponse)
+@app.post("/chat", response_model=ChatResponse, dependencies=[Depends(require_internal_token)])
 async def chat_with_agent(req: ChatRequest):
     try:
         response = await agent.process_request(
@@ -53,7 +74,7 @@ async def chat_with_agent(req: ChatRequest):
         print(f"[AI Service Error] {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/memory/{user_id}")
+@app.get("/memory/{user_id}", dependencies=[Depends(require_internal_token)])
 async def get_preferences(user_id: str):
     return memory.get_user_preferences(user_id)
 

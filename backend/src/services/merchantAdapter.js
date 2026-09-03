@@ -1,5 +1,11 @@
 import { query } from '../config/database.js';
-import { STANDARD_SHIPPING_THRESHOLD, DELIVERY_FEE_STANDARD_LOW_VALUE, TAX_RATE, calculatePrice } from './pricingService.js';
+import {
+  STANDARD_SHIPPING_THRESHOLD,
+  DELIVERY_FEE_EXPRESS,
+  DELIVERY_FEE_STANDARD_LOW_VALUE,
+  TAX_RATE,
+  calculatePrice,
+} from './pricingService.js';
 
 /**
  * Base Merchant Adapter Interface

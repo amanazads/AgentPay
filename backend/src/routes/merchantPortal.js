@@ -1194,6 +1194,7 @@ router.get('/orders', async (req, res, next) => {
       id: o.id,
       orderId: o.id,
       orderNumber: o.order_number,
+      order_number: o.order_number,
       purchaseIntentId: o.purchase_intent_id,
       transactionId: o.transaction_id,
       quoteId: o.quote_id,

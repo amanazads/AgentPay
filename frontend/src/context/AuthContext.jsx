@@ -6,6 +6,7 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [activeProfile, setActiveProfile] = useState('buyer');
 
   useEffect(() => {
     validateSession();
@@ -27,6 +28,7 @@ export function AuthProvider({ children }) {
         const normalizedRole = (res.user.role || 'BUYER').toUpperCase();
         const liveUserData = { ...res.user, role: normalizedRole };
         setUser(liveUserData);
+        setActiveProfile(normalizedRole === 'MERCHANT' ? 'merchant' : 'buyer');
         localStorage.setItem('agentpay_user', JSON.stringify(liveUserData));
       } else {
         throw new Error('User not found in database');
@@ -48,6 +50,7 @@ export function AuthProvider({ children }) {
       const normalizedRole = (res.user?.role || 'BUYER').toUpperCase();
       const userData = { ...res.user, role: normalizedRole };
       setUser(userData);
+      setActiveProfile(normalizedRole === 'MERCHANT' ? 'merchant' : 'buyer');
       localStorage.setItem('agentpay_token', res.token);
       localStorage.setItem('agentpay_user', JSON.stringify(userData));
       return { ...res, user: userData };
@@ -62,6 +65,7 @@ export function AuthProvider({ children }) {
       const normalizedRole = (res.user?.role || role).toUpperCase();
       const userData = { ...res.user, role: normalizedRole };
       setUser(userData);
+      setActiveProfile(normalizedRole === 'MERCHANT' ? 'merchant' : 'buyer');
       localStorage.setItem('agentpay_token', res.token);
       localStorage.setItem('agentpay_user', JSON.stringify(userData));
       return { ...res, user: userData };
@@ -80,6 +84,7 @@ export function AuthProvider({ children }) {
       const normalizedRole = (res.user?.role || role).toUpperCase();
       const userData = { ...res.user, role: normalizedRole };
       setUser(userData);
+      setActiveProfile(normalizedRole === 'MERCHANT' ? 'merchant' : 'buyer');
       localStorage.setItem('agentpay_token', res.token);
       localStorage.setItem('agentpay_user', JSON.stringify(userData));
       return { ...res, user: userData };
@@ -98,10 +103,16 @@ export function AuthProvider({ children }) {
     localStorage.removeItem('agentpay_token');
     localStorage.removeItem('agentpay_user');
     localStorage.removeItem('agentpay_initial_role');
+    setActiveProfile('buyer');
   };
 
   const isMerchant = (user?.role || '').toUpperCase() === 'MERCHANT';
   const isBuyer = (user?.role || 'BUYER').toUpperCase() === 'BUYER';
+  const isAdmin = (user?.role || '').toUpperCase() === 'ADMIN';
+  const switchProfile = (profile) => {
+    const normalized = profile === 'merchant' ? 'merchant' : 'buyer';
+    setActiveProfile(normalized);
+  };
 
   return (
     <AuthContext.Provider
@@ -110,13 +121,15 @@ export function AuthProvider({ children }) {
         role: user?.role || 'BUYER',
         isMerchant,
         isBuyer,
+        isAdmin,
+        activeProfile,
         loading,
         isAuthenticated: !!user,
-        isAdmin: user?.role === 'admin',
         login,
         signup,
         loginWithGoogle,
         logout,
+        switchProfile,
         validateSession,
       }}
     >

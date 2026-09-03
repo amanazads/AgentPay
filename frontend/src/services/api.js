@@ -43,7 +43,6 @@ export const api = {
   loginWithGoogle: (data = {}) => request('/api/auth/google', { method: 'POST', body: data }),
   logout: () => request('/api/auth/logout', { method: 'POST' }),
   getMe: () => request('/api/auth/me'),
-  switchProfile: (activeProfile) => request('/api/auth/switch-profile', { method: 'POST', body: { activeProfile } }),
 
   // Purchasing Preferences & Procurement Policy Engine
   getPreferences: () => request('/api/preferences'),
@@ -54,6 +53,11 @@ export const api = {
 
   // AI Conversational Procurement & Natural-Language Intent
   sendChatMessage: (data) => request('/api/ai/chat', { method: 'POST', body: data }),
+  getAgents: () => request('/api/agents'),
+  updateAgent: (id, data) => request(`/api/agents/${id}`, { method: 'PATCH', body: data }),
+  getDashboardStats: () => request('/api/dashboard/stats'),
+  getDashboard: () => request('/api/dashboard'),
+  getPolicies: () => request('/api/policies'),
 
   // Canonical Product Discovery & Catalog
   getProducts: (params = {}) => {

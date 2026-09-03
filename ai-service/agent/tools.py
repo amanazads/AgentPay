@@ -5,7 +5,7 @@ from config import settings
 class AgentTools:
     """
     Standardized tools for the AI Buyer Agent.
-    Note: The AI agent ONLY has access to discovery, comparison, and intent creation tools.
+    Note: The AI agent ONLY has access to discovery and comparison tools.
     Direct financial execution, policy modification, or approval bypass tools are PROHIBITED.
     """
     
@@ -62,34 +62,6 @@ class AgentTools:
             except Exception as e:
                 print(f"[AgentTools] Compare error: {e}")
         return []
-
-    async def create_purchase_intent(
-        self,
-        agent_id: str,
-        product_id: str,
-        amount: float,
-        merchant_id: Optional[str] = None,
-        user_id: Optional[str] = None,
-        ai_reasoning: str = "",
-        ai_recommendation: str = "",
-    ) -> Dict[str, Any]:
-        payload = {
-            "agent_id": agent_id,
-            "product_id": product_id,
-            "merchant_id": merchant_id,
-            "user_id": user_id,
-            "amount": amount,
-            "ai_reasoning": ai_reasoning,
-            "ai_recommendation": ai_recommendation,
-            "auto_evaluate": True,
-        }
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            try:
-                res = await client.post(f"{self.base_url}/purchase-intents", json=payload)
-                return res.json()
-            except Exception as e:
-                print(f"[AgentTools] Intent creation error: {e}")
-                return {"error": str(e)}
 
     async def get_agent_details(self, agent_id: str) -> Optional[Dict[str, Any]]:
         async with httpx.AsyncClient(timeout=10.0) as client:

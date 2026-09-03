@@ -748,17 +748,18 @@ export async function evaluateSystemReadiness({
   // 23. AI service
   // ──────────────────────────────────────────────────────────────────────────
   const hasGeminiKey = Boolean(activeEnv.GEMINI_API_KEY && activeEnv.GEMINI_API_KEY.trim() !== '');
+  const geminiModel = activeEnv.GEMINI_MODEL || 'gemini-3.7-flash';
   checks.push({
     id: 'AI_ORCHESTRATION_SERVICE',
     category: 'AI',
     title: 'AI Commerce Orchestration & Intent Parser',
     status: hasGeminiKey ? ReadinessStatuses.READY : ReadinessStatuses.SIMULATED,
     details: hasGeminiKey
-      ? 'Google Gemini 1.5 Pro live API key active for intent comprehension.'
+      ? `Google Gemini live API key active for intent comprehension using ${geminiModel}.`
       : 'Using local deterministic rule-based intent parser fallback (Simulated LLM).',
     evidence: {
       liveApiKeyConfigured: hasGeminiKey,
-      provider: hasGeminiKey ? 'Gemini 1.5 Pro' : 'Deterministic Rule-Based Parser',
+      provider: hasGeminiKey ? geminiModel : 'Deterministic Rule-Based Parser',
     },
   });
 

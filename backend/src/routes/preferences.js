@@ -344,4 +344,14 @@ router.post('/evaluate', requireAuth, requireBuyer, async (req, res, next) => {
   }
 });
 
+// GET /api/preferences/policies — List all policies
+router.get('/policies', requireAuth, async (req, res, next) => {
+  try {
+    const result = await query('SELECT * FROM policies ORDER BY created_at DESC');
+    res.json({ policies: result.rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

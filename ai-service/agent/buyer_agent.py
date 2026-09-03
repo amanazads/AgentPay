@@ -1,7 +1,8 @@
 import re
+import asyncio
 import httpx
 from typing import Dict, Any, Optional, List
-import google.generativeai as genai
+from google import genai
 from config import settings
 from models.schemas import ChatResponse, ProductRecommendation, ProposedAction, AuthorizationStatus
 from agent.tools import AgentTools
@@ -25,18 +26,14 @@ SECURITY RULES:
 5. Provide structured, factual product recommendations grounded strictly in verified catalog data.
 """
 
-gemini_model = None
+gemini_client = None
 if settings.GEMINI_API_KEY and settings.GEMINI_MODEL:
     try:
-        genai.configure(api_key=settings.GEMINI_API_KEY)
-        gemini_model = genai.GenerativeModel(
-            model_name=settings.GEMINI_MODEL,
-            system_instruction=SYSTEM_INSTRUCTION,
-        )
+        gemini_client = genai.Client(api_key=settings.GEMINI_API_KEY)
         print(f"[Gemini Config] Initialized with configured model: {settings.GEMINI_MODEL}")
     except Exception as e:
         print(f"[Gemini Config Warning] Initialization failed for model '{settings.GEMINI_MODEL}': {e}")
-        gemini_model = None
+        gemini_client = None
 else:
     if not settings.GEMINI_API_KEY and not settings.GEMINI_MODEL:
         print("[Gemini Config] Neither GEMINI_API_KEY nor GEMINI_MODEL configured. Using deterministic fallback.")
@@ -55,7 +52,7 @@ class AIBuyerAgent:
     def __init__(self, tools: Optional[AgentTools] = None, memory: Optional[AgentSafeMemory] = None):
         self.tools = tools or AgentTools()
         self.memory = memory or AgentSafeMemory()
-        self.model = gemini_model
+        self.model = gemini_client
 
     async def interpret_with_gemini(self, message: str) -> Dict[str, Any]:
         """
@@ -87,7 +84,15 @@ Return ONLY a valid JSON object matching this schema:
 }}
 """
         try:
-            response = self.model.generate_content(prompt)
+            response = await asyncio.to_thread(
+                self.model.models.generate_content,
+                model=settings.GEMINI_MODEL,
+                contents=prompt,
+                config={
+                    "system_instruction": SYSTEM_INSTRUCTION,
+                    "response_mime_type": "application/json",
+                },
+            )
             if response and response.text:
                 import json
                 clean_text = response.text.strip()

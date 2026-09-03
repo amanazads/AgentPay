@@ -244,11 +244,14 @@ router.post('/quote', async (req, res, next) => {
     const {
       productId,
       quantity = 1,
-      deliveryMethod = 'STANDARD',
+      deliveryMethod = req.body?.deliveryType || 'STANDARD',
+      deliveryType,
       userId = null,
       agentId = null,
       durationMinutes = 15,
     } = req.body || {};
+
+    const effectiveDeliveryMethod = deliveryMethod || deliveryType || 'STANDARD';
 
     if (!productId) {
       return res.status(400).json({ error: 'productId is required', code: QuoteErrorCodes.INVALID_INPUT });
@@ -257,7 +260,7 @@ router.post('/quote', async (req, res, next) => {
     const quote = await generateQuote({
       productId,
       quantity: parseInt(quantity, 10) || 1,
-      deliveryMethod,
+      deliveryMethod: effectiveDeliveryMethod,
       userId,
       agentId,
       durationMinutes: parseInt(durationMinutes, 10) || 15,
@@ -413,7 +416,12 @@ router.post('/chat', requireAuth, requireBuyer, async (req, res, next) => {
       try {
         const response = await fetch(`${env.AI_SERVICE_URL}/chat`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(env.AI_SERVICE_INTERNAL_TOKEN
+              ? { Authorization: `Bearer ${env.AI_SERVICE_INTERNAL_TOKEN}` }
+              : {}),
+          },
           body: JSON.stringify({ message, agent_id: targetAgentId, user_id: finalUserId }),
         });
 

@@ -162,6 +162,7 @@ export function getSanitizedConfig(config = null) {
     RAZORPAY_TEST_KEY_ID: cfg.RAZORPAY_TEST_KEY_ID ? `${cfg.RAZORPAY_TEST_KEY_ID.substring(0, 8)}...` : '[NOT_SET]',
     RAZORPAY_TEST_KEY_SECRET: redact(cfg.RAZORPAY_TEST_KEY_SECRET),
     RAZORPAY_TEST_WEBHOOK_SECRET: redact(cfg.RAZORPAY_TEST_WEBHOOK_SECRET),
+    AI_SERVICE_INTERNAL_TOKEN: redact(cfg.AI_SERVICE_INTERNAL_TOKEN),
     GEMINI_API_KEY: redact(cfg.GEMINI_API_KEY),
     GOOGLE_CLIENT_ID: cfg.GOOGLE_CLIENT_ID ? `${cfg.GOOGLE_CLIENT_ID.substring(0, 10)}...` : '[NOT_SET]',
     GOOGLE_CLIENT_SECRET: redact(cfg.GOOGLE_CLIENT_SECRET),
@@ -216,6 +217,7 @@ const env = {
 
   // AI Service
   AI_SERVICE_URL: process.env.AI_SERVICE_URL || 'http://localhost:8000',
+  AI_SERVICE_INTERNAL_TOKEN: process.env.AI_SERVICE_INTERNAL_TOKEN || '',
   GEMINI_API_KEY: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '',
   GEMINI_MODEL: (process.env.GEMINI_MODEL || '').trim(),
 

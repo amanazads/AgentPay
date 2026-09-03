@@ -7,8 +7,8 @@ const router = Router();
 
 router.use(requireAuth);
 
-// GET /api/dashboard/stats — Aggregated metrics scoped by tenant role
-router.get('/stats', async (req, res, next) => {
+// GET /api/dashboard & /api/dashboard/stats — Aggregated metrics scoped by tenant role
+router.get(['/', '/stats'], async (req, res, next) => {
   try {
     const userId = getUserIdFromRequest(req);
     const uRes = await query('SELECT role, merchant_id FROM users WHERE id::text = $1', [userId]);
