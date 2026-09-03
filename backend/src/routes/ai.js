@@ -883,7 +883,7 @@ router.post('/chat', requireAuth, requireBuyer, async (req, res, next) => {
           explanation: evaluation.reason,
           policy_summary: 'Deterministic spending policies evaluated server-side. LLM has zero direct payment authority.',
         },
-        tools_called: ['parse_intent', 'filter_eligible_candidates', 'validate_purchase_gate', 'create_purchase_intent'],
+        tools_called: ['detect_injection_threat', 'parse_intent', 'filter_eligible_candidates', 'validate_purchase_gate', 'create_purchase_intent'],
         purchase_intent: purchaseIntent,
         evaluation,
       });

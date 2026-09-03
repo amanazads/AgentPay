@@ -1,7 +1,9 @@
 import re
 import asyncio
+# pyrefly: ignore [missing-import]
 import httpx
 from typing import Dict, Any, Optional, List
+# pyrefly: ignore [missing-import]
 from google import genai
 from config import settings
 from models.schemas import ChatResponse, ProductRecommendation, ProposedAction, AuthorizationStatus
@@ -56,7 +58,7 @@ class AIBuyerAgent:
 
     async def interpret_with_gemini(self, message: str) -> Dict[str, Any]:
         """
-        Invokes Gemini 1.5 Pro to interpret complex natural-language user queries into
+        Invokes Google Gemini to interpret complex natural-language user queries into
         structured procurement constraints.
         
         INVARIANTS:
@@ -393,7 +395,7 @@ Return ONLY a valid JSON object matching this schema:
         agent_id: Optional[str] = None,
         user_id: Optional[str] = "default",
     ) -> ChatResponse:
-        tools_called = ["search_authoritative_catalog", "evaluate_hard_constraints"]
+        tools_called = ["detect_injection_threat", "search_authoritative_catalog", "evaluate_hard_constraints"]
         
         # 1. Threat check on user input — Fail closed immediately if adversarial prompt injection detected
         guard_res = PromptInjectionGuard.detect_injection_threat(message)

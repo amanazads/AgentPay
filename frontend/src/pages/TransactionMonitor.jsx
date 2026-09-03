@@ -164,7 +164,8 @@ export default function TransactionMonitor() {
                     <span>{formatDate(tx.created_at)}</span>
                   </div>
                 </div>
-              ))}
+              );
+            })}
             </div>
           </>
         )}
