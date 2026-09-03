@@ -131,19 +131,32 @@ class AIBuyerAgent:
         # Model terms extraction
         clean_text = re.sub(r'(?:under|below|less than|budget|max|up to|for|worth|price of|around|within)?\s*(?:₹|rs\.?|inr|rupees)?\s*[\d,]+(?:k)?', ' ', msg_lower)
         clean_text = re.sub(r'\b\d+\s*(?:units?|items?|pieces?|pcs|each)\b', ' ', clean_text)
-        clean_text = re.sub(r'\d[\d,]{3,7}\s*(?:mah|milliamp)\b', ' ', clean_text)
+        clean_text = re.sub(r'\d[\d,]*\s*(?:mah|milliamp)\b', ' ', clean_text)
         clean_text = re.sub(r'\d+(?:\.\d+)?\s*w(?:atts?)?\b', ' ', clean_text)
         clean_text = re.sub(r'\d{1,3}\s*(?:gb|tb)\s*(?:ram|ssd|memory|storage|nvme)?\b', ' ', clean_text)
-        clean_text = re.sub(r'\b(?:4k|uhd|anc|wireless|bluetooth|ergonomic|gan)\b', ' ', clean_text)
-        fillers = {'buy', 'order', 'purchase', 'get', 'find', 'procure', 'acquire', 'need', 'want', 'looking', 'search', 'the', 'a', 'an', 'me', 'best', 'top', 'good', 'new', 'latest', 'with', 'for', 'and', 'or', 'in', 'of', 'to', 'please', 'from', 'any', 'cheap', 'cheapest', 'affordable', 'our', 'team', 'design', 'software', 'development', 'office', 'power', 'bank', 'powerbank', 'charger', 'adapter', 'headphones', 'headphone', 'earphones', 'earbuds', 'laptop', 'monitor', 'mouse', 'keyboard', 'chair', 'desk', 'phone'}
+        clean_text = re.sub(r'\b(?:4k|uhd|anc|wireless|bluetooth|ergonomic|gan|mah|milliamp|w|watts?|gb|tb)\b', ' ', clean_text)
+        fillers = {
+            'buy', 'order', 'purchase', 'get', 'find', 'procure', 'acquire', 'need', 'want',
+            'looking', 'search', 'the', 'a', 'an', 'me', 'best', 'top', 'good', 'new', 'latest',
+            'with', 'for', 'and', 'or', 'in', 'of', 'to', 'please', 'from', 'any', 'cheap',
+            'cheapest', 'affordable', 'our', 'team', 'design', 'software', 'development', 'office',
+            'power', 'bank', 'powerbank', 'portable', 'battery', 'batteries', 'cell', 'cells',
+            'charger', 'chargers', 'charging', 'pack', 'packs', 'backup',
+            'adapter', 'headphones', 'headphone', 'earphones', 'earbuds', 'laptop', 'monitor',
+            'mouse', 'keyboard', 'chair', 'desk', 'phone', 'smartphone', 'device', 'item', 'items',
+            'unit', 'units', 'specs', 'specifications', 'model', 'equipment', 'hardware', 'mah', 'milliamp'
+        }
         words = [w for w in re.findall(r'[a-z0-9-]+', clean_text) if len(w) >= 2 and w not in fillers]
         required_model_terms = words if words else None
 
         return {
             "query": message,
+            "rawQuery": message,
             "product_type": product_type,
+            "productType": product_type,
             "category": category,
             "max_budget": budget,
+            "maxPrice": budget,
             "quantity": quantity,
             "required_capacity_mah": required_capacity_mah,
             "required_ram_gb": required_ram_gb,
@@ -151,15 +164,25 @@ class AIBuyerAgent:
             "required_wattage_w": required_wattage_w,
             "required_gan": required_gan,
             "required_model_terms": required_model_terms,
+            "hardConstraints": {
+                "requiredCapacityMah": required_capacity_mah,
+                "requiredRamGb": required_ram_gb,
+                "requiredAnc": required_anc,
+                "requiredWattageW": required_wattage_w,
+                "requiredGan": required_gan,
+                "requiredModelTerms": required_model_terms,
+            },
             "constraints": [
-                f"Type: {product_type}" if product_type else None,
-                f"Model terms: {', '.join(required_model_terms)}" if required_model_terms else None,
-                f"Budget <= ₹{budget:,.0f}" if budget else None,
-                f"Capacity >= {required_capacity_mah}mAh" if required_capacity_mah else None,
-                f"RAM >= {required_ram_gb}GB" if required_ram_gb else None,
-                f"Wattage >= {required_wattage_w}W" if required_wattage_w else None,
-                "GaN Technology" if required_gan else None,
-                "ANC Supported" if required_anc else None,
+                c for c in [
+                    f"Type: {product_type}" if product_type else None,
+                    f"Model terms: {', '.join(required_model_terms)}" if required_model_terms else None,
+                    f"Budget <= ₹{budget:,.0f}" if budget else None,
+                    f"Capacity >= {required_capacity_mah}mAh" if required_capacity_mah else None,
+                    f"RAM >= {required_ram_gb}GB" if required_ram_gb else None,
+                    f"Wattage >= {required_wattage_w}W" if required_wattage_w else None,
+                    "GaN Technology" if required_gan else None,
+                    "ANC Supported" if required_anc else None,
+                ] if c
             ],
         }
 

@@ -153,10 +153,10 @@ export default function Home() {
   };
 
   // Authoritative spending metrics directly from backend policy state
-  const monthlyBudget = preferences?.monthlyBudget || 100000;
-  const autoLimit = preferences?.automaticPurchaseLimit || 50000;
-  const totalSpent = preferences?.spentThisMonth !== undefined ? preferences.spentThisMonth : 0;
-  const remainingBudget = preferences?.remainingBudget !== undefined ? preferences.remainingBudget : Math.max(0, monthlyBudget - totalSpent);
+  const monthlyBudget = parseFloat(preferences?.monthlyBudget) || 1000000;
+  const autoLimit = parseFloat(preferences?.automaticPurchaseLimit || preferences?.autoPurchaseLimit) || 200000;
+  const totalSpent = parseFloat(preferences?.spentThisMonth) || 0;
+  const remainingBudget = Math.max(0, monthlyBudget - totalSpent);
 
   return (
     <div className="home-container">
@@ -425,8 +425,8 @@ export default function Home() {
                   <div className="result-price-box">
                     <span className="result-price">{formatCurrency(currentSession.recommendation.price)}</span>
                     <StatusBadge
-                      status={isCompleted ? 'CONFIRMED' : isApprovalRequired ? 'APPROVAL_REQUIRED' : 'BLOCKED'}
-                      label={isCompleted ? 'Purchase Confirmed' : isApprovalRequired ? 'Needs Approval' : 'Blocked'}
+                      status={isCompleted ? 'CONFIRMED' : isApprovalRequired ? 'APPROVAL_REQUIRED' : isBlocked ? 'BLOCKED' : 'ALLOW'}
+                      label={isCompleted ? 'Purchase Confirmed' : isApprovalRequired ? 'Needs Approval' : isBlocked ? 'Blocked' : 'Match Found'}
                     />
                   </div>
                 </div>
@@ -450,8 +450,10 @@ export default function Home() {
                       <li><Icons.Check size={14} className="icon-green" /> Autonomous payment verified on Razorpay test rails</li>
                     ) : isApprovalRequired ? (
                       <li><Icons.AlertTriangle size={14} className="icon-amber" /> Amount exceeds autonomous threshold ({formatCurrency(autoLimit)}) — 1-click authorization required</li>
-                    ) : (
+                    ) : isBlocked ? (
                       <li><Icons.ShieldAlert size={14} className="icon-red" /> Blocked: {currentSession.authorization_status?.explanation || 'Policy constraint'}</li>
+                    ) : (
+                      <li><Icons.Check size={14} className="icon-green" /> Product eligible for immediate checkout</li>
                     )}
                   </ul>
                 </div>

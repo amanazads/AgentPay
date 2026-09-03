@@ -66,7 +66,9 @@ router.post('/', requireAuth, requireBuyer, async (req, res, next) => {
       brandRules = {},
     } = req.body;
 
-    const effectiveAutoLimit = autoPurchaseLimit !== undefined ? autoPurchaseLimit : (automaticPurchaseLimit !== undefined ? automaticPurchaseLimit : 50000);
+    const effectiveAutoLimit = automaticPurchaseLimit !== undefined 
+      ? automaticPurchaseLimit 
+      : (autoPurchaseLimit !== undefined ? autoPurchaseLimit : 50000);
     const numMonthlyBudget = parseFloat(monthlyBudget);
     const numAutoLimit = parseFloat(effectiveAutoLimit);
 

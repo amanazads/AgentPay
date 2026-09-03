@@ -16,6 +16,7 @@ import { dispatchCommerceNotification } from '../services/notificationDispatcher
 import { parseBuyerIntent } from '../services/intentParser.js';
 import { findEligibleProducts } from '../services/candidateFilter.js';
 import { requireAdmin, requireAuth } from '../middleware/authMiddleware.js';
+import { ensureBuyerDefaults } from '../utils/userProvisioner.js';
 import env from '../config/env.js';
 
 const router = Router();
@@ -285,14 +286,42 @@ router.post(['/evaluate-purchase-flow', '/execute-happy-path'], async (req, res,
     const totalAmount = price + deliveryFee;
 
     // 4. Resolve Agent & Buyer User
-    const agentRes = await query("SELECT * FROM agents WHERE name ILIKE '%Procurement%' LIMIT 1");
-    const agent = agentRes.rows[0];
-    if (!agent) throw new Error('Procurement Agent not configured');
-
     let userId = getUserIdFromRequest(req);
     if (!userId) {
       const uRes = await query("SELECT id, name, email FROM users WHERE role = 'BUYER' LIMIT 1");
       userId = uRes.rows[0]?.id;
+    }
+
+    let agentRes = await query("SELECT * FROM agents WHERE owner_id = $1 LIMIT 1", [userId]);
+    let agent = agentRes.rows[0];
+
+    if (!agent) {
+      agentRes = await query("SELECT * FROM agents WHERE name ILIKE '%Procurement%' LIMIT 1");
+      agent = agentRes.rows[0];
+    }
+
+    if (!agent && userId) {
+      agent = await ensureBuyerDefaults(userId);
+    }
+
+    if (!agent) {
+      // Fallback: create standalone agent
+      const polRes = await query("SELECT id FROM policies LIMIT 1");
+      let polId = polRes.rows[0]?.id;
+      if (!polId) {
+        const pNew = await query(`
+          INSERT INTO policies (name, max_transaction, daily_budget, approval_threshold, allowed_categories, verified_merchants_only, version)
+          VALUES ('Default Policy', 200000, 500000, 25000, ARRAY['Electronics', 'Peripherals', 'Hardware'], true, 1)
+          RETURNING id
+        `);
+        polId = pNew.rows[0].id;
+      }
+      const newA = await query(`
+        INSERT INTO agents (name, description, policy_id, status)
+        VALUES ('Autonomous Procurement Agent', 'AI Assistant', $1, 'active')
+        RETURNING *
+      `, [polId]);
+      agent = newA.rows[0];
     }
 
     // 5. Resolve Delivery Address
@@ -775,13 +804,23 @@ router.post(['/test-surge-protection', '/simulate-price-change'], async (req, re
     const approvedLimit = Math.floor(catalogPrice * 1.08); // Approved max budget
     const surgedCheckoutPrice = Math.floor(catalogPrice * 1.285); // Surged +28.5% at checkout
 
-    const agentRes = await query("SELECT id FROM agents WHERE name ILIKE '%Procurement%' LIMIT 1");
-    const agentId = agentRes.rows[0]?.id;
-
     let userId = getUserIdFromRequest(req);
     if (!userId) {
       const uRes = await query("SELECT id FROM users WHERE role = 'BUYER' LIMIT 1");
       userId = uRes.rows[0]?.id;
+    }
+
+    let agentRes = await query("SELECT id FROM agents WHERE owner_id = $1 LIMIT 1", [userId]);
+    let agentId = agentRes.rows[0]?.id;
+
+    if (!agentId) {
+      agentRes = await query("SELECT id FROM agents WHERE name ILIKE '%Procurement%' LIMIT 1");
+      agentId = agentRes.rows[0]?.id;
+    }
+
+    if (!agentId && userId) {
+      const provAgent = await ensureBuyerDefaults(userId);
+      agentId = provAgent?.id;
     }
 
     const idempotencyKey = crypto.createHash('sha256').update(`demo_surge_${targetProduct.id}_${Date.now()}`).digest('hex');

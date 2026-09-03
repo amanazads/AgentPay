@@ -195,7 +195,7 @@ export default function JudgeCockpit() {
           <div className="judge-header-actions">
             <button
               className="btn-secondary-dark"
-              onClick={() => window.open('/AGENTPAY_ARCHITECTURE.md', '_blank')}
+              onClick={() => window.open('https://github.com/amanazads/agentpay/blob/main/ARCHITECTURE.md', '_blank')}
               title="Open Canonical Architecture Reference"
             >
               <Icons.Shield size={16} /> Architecture Doc

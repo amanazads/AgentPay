@@ -382,64 +382,6 @@ router.post('/chat', requireAuth, requireBuyer, async (req, res, next) => {
 
     const io = req.app.get('io');
 
-    // 1. Try FastAPI AI Service first
-    try {
-      const response = await fetch(`${env.AI_SERVICE_URL}/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, agent_id, user_id: finalUserId }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        // Server-Authoritative Grounding: AI output may propose a product, but backend must resolve it against catalog
-        if (data.status === 'MATCH_FOUND' && data.recommendation) {
-          const proposedProdId = data.recommendation.product_id || data.recommendation.id;
-          try {
-            const parsedIntent = parseBuyerIntent(message);
-            const gateRes = await validatePurchaseCandidate({
-              id: proposedProdId,
-              name: data.recommendation.name,
-              price: data.recommendation.price,
-              unit_price: data.recommendation.unit_price,
-              specifications: data.recommendation.specifications,
-              merchant_id: data.recommendation.merchant_id,
-            }, parsedIntent);
-
-            if (gateRes.valid) {
-              data.recommendation.id = gateRes.product.id;
-              data.recommendation.product_id = gateRes.product.id;
-              data.recommendation.name = gateRes.product.name;
-              data.recommendation.price = gateRes.product.price;
-              data.recommendation.merchant_id = gateRes.product.merchantId;
-              data.recommendation.merchant_name = gateRes.product.merchantName;
-              return res.json(data);
-            }
-          } catch (valErr) {
-            logger.warn('AI', `AI-proposed product '${proposedProdId}' failed authoritative catalog grounding: ${valErr.message}`);
-            return res.json({
-              status: 'NO_MATCH',
-              agent_name: data.agent_name || 'Procurement Agent',
-              reply: `I couldn't find an in-stock product that satisfies all mandatory catalog and policy constraints (${valErr.message}).`,
-              intent_parsed: parseBuyerIntent(message),
-              rejection_reasons: [valErr.message],
-              recommendation: null,
-              authorization_status: {
-                state: 'NO_MATCH',
-                explanation: 'Proposed product rejected by authoritative catalog pre-purchase gate.',
-                policy_summary: 'No financial transaction authorized.',
-              },
-              tools_called: data.tools_called || ['search_authoritative_catalog', 'evaluate_hard_constraints'],
-            });
-          }
-        }
-        return res.json(data);
-      }
-    } catch (pyErr) {
-      // FastAPI service offline, proceed to high-performance native orchestrator
-    }
-
-    // 2. High-Performance Deterministic Multi-Merchant Orchestrator
     let targetAgentId = agent_id;
     let agentName = 'Procurement Agent';
     if (targetAgentId) {
@@ -462,31 +404,104 @@ router.post('/chat', requireAuth, requireBuyer, async (req, res, next) => {
       }
     }
 
-    // 3. Parse Intent & Extract Hard Constraints
-    const parsedIntent = parseBuyerIntent(message);
-    const maxBudget = parsedIntent.maxPrice;
+    let parsedIntent = parseBuyerIntent(message);
+    let candidateProduct = null;
+    let comparison = [];
 
-    // 4. Find Eligible Candidates (Strict Hard Filtering, NO Fallback)
-    const matchResult = await findEligibleProducts(parsedIntent, { userId: finalUserId, limit: 10 });
+    // 1. Try FastAPI AI Service first (production/development only; tests use deterministic orchestrator)
+    if (process.env.NODE_ENV !== 'test') {
+      try {
+        const response = await fetch(`${env.AI_SERVICE_URL}/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message, agent_id: targetAgentId, user_id: finalUserId }),
+        });
 
-    if (matchResult.status === 'NO_MATCH' || !matchResult.winningCandidate) {
-      return res.json({
-        status: 'NO_MATCH',
-        agent_name: agentName,
-        reply: `I couldn't find an in-stock product that matches all of your explicit requirements.\n\n${matchResult.explanation}\n\nWould you like me to search other connected merchants or relax your budget?`,
-        intent_parsed: parsedIntent,
-        rejection_reasons: matchResult.rejectionReasons || [],
-        recommendation: null,
-        authorization_status: {
-          state: 'NO_MATCH',
-          explanation: 'No product in authoritative merchant catalogs satisfies 100% of hard constraints.',
-          policy_summary: 'No financial transaction authorized.',
-        },
-        tools_called: ['search_authoritative_catalog', 'evaluate_hard_constraints'],
-      });
+        if (response.ok) {
+          const data = await response.json();
+          if (data.intent_parsed) {
+            parsedIntent = { ...parsedIntent, ...data.intent_parsed };
+          }
+          if (data.status === 'MATCH_FOUND' && data.recommendation) {
+            const proposedProdId = data.recommendation.product_id || data.recommendation.id;
+            try {
+              const gateRes = await validatePurchaseCandidate({
+                id: proposedProdId,
+                name: data.recommendation.name,
+                price: data.recommendation.price,
+                unit_price: data.recommendation.unit_price,
+                specifications: data.recommendation.specifications,
+                merchant_id: data.recommendation.merchant_id,
+              }, parsedIntent);
+
+              if (gateRes.valid) {
+                candidateProduct = {
+                  ...gateRes.product,
+                  id: gateRes.product.id,
+                  merchant_id: gateRes.product.merchantId || data.recommendation.merchant_id,
+                  merchant_name: gateRes.product.merchantName || data.recommendation.merchant_name,
+                  brand: gateRes.product.brand || data.recommendation.brand,
+                  specifications: gateRes.product.specifications || data.recommendation.specifications,
+                  matchedRules: data.recommendation.matched_rules || [
+                    'Matches requested product type and hard specifications',
+                    'Price is within authorized budget ceiling',
+                    'Live verified inventory available for immediate dispatch',
+                  ],
+                  selectionReason: data.recommendation.reason,
+                };
+              }
+            } catch (valErr) {
+              logger.warn('AI', `AI-proposed product '${proposedProdId}' failed authoritative catalog grounding: ${valErr.message}`);
+            }
+          }
+        }
+      } catch (pyErr) {
+        // FastAPI service offline, proceed to high-performance native orchestrator
+      }
     }
 
-    const product = matchResult.winningCandidate;
+    // 2. High-Performance Deterministic Multi-Merchant Orchestrator fallback
+    if (!candidateProduct) {
+      const matchResult = await findEligibleProducts(parsedIntent, { userId: finalUserId, limit: 10 });
+
+      if (matchResult.status === 'NO_MATCH' || !matchResult.winningCandidate) {
+        return res.json({
+          status: 'NO_MATCH',
+          agent_name: agentName,
+          reply: `I couldn't find an in-stock product that matches all of your explicit requirements.\n\n${matchResult.explanation}\n\nWould you like me to search other connected merchants or relax your budget?`,
+          intent_parsed: parsedIntent,
+          rejection_reasons: matchResult.rejectionReasons || [],
+          recommendation: null,
+          authorization_status: {
+            state: 'NO_MATCH',
+            explanation: 'No product in authoritative merchant catalogs satisfies 100% of hard constraints.',
+            policy_summary: 'No financial transaction authorized.',
+          },
+          tools_called: ['search_authoritative_catalog', 'evaluate_hard_constraints'],
+        });
+      }
+
+      candidateProduct = matchResult.winningCandidate;
+      const validationResult = await validatePurchaseCandidate(candidateProduct, parsedIntent);
+      if (!validationResult.valid) {
+        return res.status(400).json({
+          status: 'VALIDATION_FAILED',
+          error: 'Product candidate failed pre-purchase validation.',
+        });
+      }
+
+      comparison = matchResult.candidates.slice(0, 3).map((p) => ({
+        merchantName: p.merchant_name,
+        productName: p.name,
+        price: parseFloat(p.price),
+        deliveryDays: p.delivery_days || 2,
+        rating: p.merchant_rating || 4.8,
+        inStock: p.in_stock,
+        matchedRules: p.matchedRules || [],
+      }));
+    }
+
+    const product = candidateProduct;
 
     // 5. Purchase Gate: Independent Pre-Transaction Candidate Validation
     const validationResult = await validatePurchaseCandidate(product, parsedIntent);
@@ -498,15 +513,17 @@ router.post('/chat', requireAuth, requireBuyer, async (req, res, next) => {
     }
 
     // 6. Build Comparison Set from Valid Candidates
-    const comparison = matchResult.candidates.slice(0, 3).map((p) => ({
-      merchantName: p.merchant_name,
-      productName: p.name,
-      price: parseFloat(p.price),
-      deliveryDays: p.delivery_days || 2,
-      rating: p.merchant_rating || 4.8,
-      inStock: p.in_stock,
-      matchedRules: p.matchedRules || [],
-    }));
+    if (comparison.length === 0) {
+      comparison = [{
+        merchantName: product.merchant_name,
+        productName: product.name,
+        price: parseFloat(product.price),
+        deliveryDays: product.delivery_days || 2,
+        rating: product.merchant_rating || 4.8,
+        inStock: product.in_stock,
+        matchedRules: product.matchedRules || [],
+      }];
+    }
 
     const pricing = calculatePrice({
       product,

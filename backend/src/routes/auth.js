@@ -8,6 +8,7 @@ import {
   validateAndRotateRefreshToken,
   verifyAccessToken,
 } from '../utils/authUtils.js';
+import { ensureBuyerDefaults } from '../utils/userProvisioner.js';
 
 const router = Router();
 
@@ -56,6 +57,10 @@ router.post('/signup', async (req, res, next) => {
     `, [cleanEmail, name.trim(), role, passwordHash]);
 
     const user = insertRes.rows[0];
+    if (role === 'BUYER') {
+      await ensureBuyerDefaults(user.id, user.email);
+    }
+
     const token = generateAccessToken(user);
     const { refreshToken } = await createRefreshToken(user.id);
 
@@ -99,6 +104,10 @@ router.post('/login', async (req, res, next) => {
     }
 
     const normalizedRole = user.role === 'admin' ? 'admin' : ((user.role || 'BUYER').toUpperCase() === 'MERCHANT' ? 'MERCHANT' : 'BUYER');
+
+    if (normalizedRole === 'BUYER') {
+      await ensureBuyerDefaults(user.id, user.email);
+    }
 
     const token = generateAccessToken({ ...user, role: normalizedRole });
     const { refreshToken } = await createRefreshToken(user.id);

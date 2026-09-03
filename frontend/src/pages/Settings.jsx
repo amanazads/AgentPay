@@ -137,13 +137,13 @@ export default function Settings({ isMerchant = false }) {
             <div className="settings-grid">
               <div className="settings-field">
                 <div className="settings-label">Monthly Spending Budget</div>
-                <div className="settings-value-strong">{formatCurrency(preferences?.monthlyBudget || 100000)}</div>
+                <div className="settings-value-strong">{formatCurrency(preferences?.monthlyBudget || 1000000)}</div>
                 <div className="settings-hint">Hard monthly spend ceiling</div>
               </div>
 
               <div className="settings-field">
                 <div className="settings-label">Autonomous Single-Purchase Limit</div>
-                <div className="settings-value-strong">{formatCurrency(preferences?.autoPurchaseLimit || 50000)}</div>
+                <div className="settings-value-strong">{formatCurrency(preferences?.automaticPurchaseLimit || preferences?.autoPurchaseLimit || 200000)}</div>
                 <div className="settings-hint">Purchases above this require approval</div>
               </div>
 

@@ -9,12 +9,12 @@ const AVAILABLE_CATEGORIES = ['Electronics', 'Peripherals', 'Office Supplies', '
 
 export default function Preferences() {
   const [prefs, setPrefs] = useState({
-    monthlyBudget: 100000,
+    monthlyBudget: 1000000,
     spentThisMonth: 0,
-    remainingBudget: 100000,
-    automaticPurchaseLimit: 50000,
-    categories: ['Electronics', 'Peripherals'],
-    preferredBrands: ['Apple', 'Sony', 'Logitech'],
+    remainingBudget: 1000000,
+    automaticPurchaseLimit: 200000,
+    categories: ['Electronics', 'Peripherals', 'Software & Licenses', 'Office Supplies', 'Furniture', 'Hardware'],
+    preferredBrands: ['Apple', 'Sony', 'Ambrane', 'Logitech'],
     deliveryPreference: 'Fastest available (within 2 days)',
     purchaseBehavior: 'auto_within_limit',
     customCriteria: [
@@ -61,15 +61,24 @@ export default function Preferences() {
     setSaveMessage(null);
     setSaveError(null);
 
+    const numMonthly = parseFloat(prefs.monthlyBudget) || 0;
+    const numAuto = parseFloat(prefs.automaticPurchaseLimit ?? prefs.autoPurchaseLimit) || 0;
+
     // Client-side quick check before submitting to server
-    if (prefs.automaticPurchaseLimit > prefs.monthlyBudget) {
-      setSaveError(`Autonomous single-purchase limit (₹${prefs.automaticPurchaseLimit.toLocaleString('en-IN')}) cannot exceed total monthly budget (₹${prefs.monthlyBudget.toLocaleString('en-IN')}).`);
+    if (numAuto > numMonthly) {
+      setSaveError(`Autonomous single-purchase limit (₹${numAuto.toLocaleString('en-IN')}) cannot exceed total monthly budget (₹${numMonthly.toLocaleString('en-IN')}).`);
       setSaving(false);
       return;
     }
 
     try {
-      const res = await api.updatePreferences(prefs);
+      const payload = {
+        ...prefs,
+        monthlyBudget: numMonthly,
+        automaticPurchaseLimit: numAuto,
+        autoPurchaseLimit: numAuto,
+      };
+      const res = await api.updatePreferences(payload);
       if (res.preferences) {
         setPrefs((prev) => ({ ...prev, ...res.preferences }));
       }
@@ -201,7 +210,7 @@ export default function Preferences() {
         <div className="spending-divider" />
         <div className="spending-item">
           <span className="spending-label">Remaining Budget</span>
-          <span className="spending-val highlight-green">{formatCurrency(prefs.remainingBudget)}</span>
+          <span className="spending-val highlight-green">{formatCurrency(Math.max(0, (parseFloat(prefs.monthlyBudget) || 0) - (parseFloat(prefs.spentThisMonth) || 0)))}</span>
         </div>
         <div className="spending-divider" />
         <div className="spending-item">
@@ -247,10 +256,15 @@ export default function Preferences() {
               <input
                 type="number"
                 className="input-ui"
-                value={prefs.automaticPurchaseLimit}
-                onChange={(e) =>
-                  setPrefs({ ...prefs, automaticPurchaseLimit: parseFloat(e.target.value) || 0 })
-                }
+                value={prefs.automaticPurchaseLimit !== undefined ? prefs.automaticPurchaseLimit : (prefs.autoPurchaseLimit !== undefined ? prefs.autoPurchaseLimit : '')}
+                onChange={(e) => {
+                  const val = e.target.value === '' ? '' : (parseFloat(e.target.value) || 0);
+                  setPrefs((prev) => ({
+                    ...prev,
+                    automaticPurchaseLimit: val,
+                    autoPurchaseLimit: val,
+                  }));
+                }}
               />
               <span className="text-caption">
                 AI can purchase up to this amount automatically. Higher amounts escalate to human 1-click review.
@@ -262,10 +276,14 @@ export default function Preferences() {
               <input
                 type="number"
                 className="input-ui"
-                value={prefs.monthlyBudget}
-                onChange={(e) =>
-                  setPrefs({ ...prefs, monthlyBudget: parseFloat(e.target.value) || 0 })
-                }
+                value={prefs.monthlyBudget !== undefined ? prefs.monthlyBudget : ''}
+                onChange={(e) => {
+                  const val = e.target.value === '' ? '' : (parseFloat(e.target.value) || 0);
+                  setPrefs((prev) => ({
+                    ...prev,
+                    monthlyBudget: val,
+                  }));
+                }}
               />
               <span className="text-caption">
                 Maximum qualifying spend per calendar month across all agent purchases. Deterministically blocked if exceeded.

@@ -142,8 +142,8 @@ export async function processApproval({
       const uRes = await client.query('SELECT id, role FROM users WHERE id::text = $1', [reviewerId]);
       const reviewer = uRes.rows[0];
       const role = (reviewer?.role || '').toUpperCase();
-      const isOwner = appRecord.user_id && appRecord.user_id === reviewerId;
-      const isAgentOwner = appRecord.agent_owner_id && appRecord.agent_owner_id === reviewerId;
+      const isOwner = appRecord.user_id && String(appRecord.user_id) === String(reviewerId);
+      const isAgentOwner = appRecord.agent_owner_id && String(appRecord.agent_owner_id) === String(reviewerId);
       const isAuthorizedRole = role === 'ADMIN' || role === 'SUPERVISOR';
 
       if (!isOwner && !isAgentOwner && !isAuthorizedRole) {

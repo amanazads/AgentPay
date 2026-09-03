@@ -1,14 +1,18 @@
-# AgentPay — Autonomous AI Commerce Authorization & Control Plane
+# AgentPay — Autonomous AI Commerce Control Plane
 
 [![Platform](https://img.shields.io/badge/Platform-AI%20Agent%20Commerce-blue.svg)]()
+[![Track](https://img.shields.io/badge/Razorpay%20Buildathon-Track%2001-green.svg)]()
+[![Architecture](https://img.shields.io/badge/Architecture-Specification-blueviolet.svg)](./ARCHITECTURE.md)
+[![Security](https://img.shields.io/badge/Security-Threat%20Model-red.svg)](./SECURITY.md)
 [![License](https://img.shields.io/badge/license-MIT-purple.svg)]()
-[![Architecture](https://img.shields.io/badge/Architecture-Canonical%20Specification-blueviolet.svg)](./AGENTPAY_ARCHITECTURE.md)
 
 > **"AI decides what to buy. AgentPay decides whether the AI is allowed to spend."**
 
-AgentPay is a deterministic authorization, policy enforcement, explainable risk assessment, and payment execution control plane built specifically for autonomous AI buyer agents.
+AgentPay is a deterministic financial authorization, policy enforcement, explainable risk assessment, and payment execution control plane built specifically for autonomous AI buyer agents.
 
-📖 **[Read the Canonical Architecture Specification (AGENTPAY_ARCHITECTURE.md)](./AGENTPAY_ARCHITECTURE.md)** for detailed technical invariants, database schemas, and architectural defense specifications.
+📖 Documentation Links:
+* **[System Architecture & Dataflow (ARCHITECTURE.md)](./ARCHITECTURE.md)**
+* **[Security Model & Threat Defense (SECURITY.md)](./SECURITY.md)**
 
 ---
 
@@ -17,10 +21,10 @@ AgentPay is a deterministic authorization, policy enforcement, explainable risk 
 As autonomous AI agents evolve into independent procurement systems capable of sourcing equipment, cloud infrastructure, and software subscriptions, the fundamental vulnerability is **unbounded financial authority**.
 
 Granting Large Language Models (LLMs) direct payment credentials or autonomous checkout authority introduces critical failure modes:
-* **Probabilistic Arithmetic**: LLMs cannot provide mathematical guarantees on budget ceilings or cumulative spending.
-* **Prompt Injection & Catalog Poisoning**: Adversarial text embedded in merchant descriptions can hijack model instructions to exfiltrate funds or alter order amounts.
-* **Price Tampering**: Unverified checkout payloads can inflate prices after intent creation.
-* **Concurrency & Double Charges**: Unsynchronized agent retry loops can cause race-condition double spending.
+1. **Probabilistic Arithmetic**: LLMs cannot provide mathematical guarantees on budget ceilings or cumulative spending.
+2. **Prompt Injection & Catalog Poisoning**: Adversarial text embedded in merchant descriptions can hijack model instructions to exfiltrate funds or alter order amounts.
+3. **Price Tampering**: Unverified checkout payloads can inflate prices after intent creation.
+4. **Concurrency & Double Charges**: Unsynchronized agent retry loops can cause race-condition double spending.
 
 ### The Core Architectural Invariant
 
@@ -50,9 +54,9 @@ Immutable Append-Only Audit Trail (PostgreSQL Trigger Protected)
 
 ---
 
-## 2. Architectural Scope & Environment Disclosure
+## 2. Implementation Scope & Truthful Disclosure
 
-To ensure technical truthfulness under engineering review, AgentPay clearly distinguishes between the target production design, the current evaluation implementation, and the internal simulation/security tooling:
+To maintain complete transparency under technical review, AgentPay clearly distinguishes between the target production design and the current evaluation implementation:
 
 | Dimension | Target Production Architecture | Current Evaluation Implementation |
 |---|---|---|
@@ -69,13 +73,12 @@ To ensure technical truthfulness under engineering review, AgentPay clearly dist
 
 ```mermaid
 graph TB
-    subgraph "Frontend — React + Vite (Port 5174)"
+    subgraph "Frontend — React + Vite (Port 5173)"
         BuyerUI[Buyer Portal & Preferences]
         MerchUI[Merchant Control Plane & Storefront]
         ApprovalUI[Human Approval Center]
         AuditUI[Audit Trail Explorer]
         AdminUI[Admin Console & Security Lab]
-        JudgeUI[Technical Evaluation Cockpit]
     end
 
     subgraph "Backend — Node.js + Express (Port 5050)"
@@ -110,7 +113,6 @@ graph TB
     MerchUI --> API
     ApprovalUI --> API
     AdminUI --> API
-    JudgeUI --> API
     API <-->|Socket.IO Real-Time Telemetry| BuyerUI
 
     API --> PolicyEngine
@@ -144,7 +146,7 @@ graph TB
 
 Rather than relying on brittle third-party web scrapers or unauthorized marketplace logins, AgentPay implements a **Normalized Merchant Connector Architecture**:
 
-1. **Structured Merchant Registry (`merchants`, `merchant_profiles`)**: Stores merchant business profiles, KYC verification status, verified tier levels, and commission schedules.
+1. **Structured Merchant Registry (`merchants`)**: Stores merchant business profiles, KYC verification status, verified tier levels, and commission schedules.
 2. **Standardized Product Catalog (`products`, `product_ai_metadata`)**: Normalizes product specifications, technical attributes, inventory stock levels, price tiers, and AI search embeddings.
 3. **Cryptographic Connector Credentials**: Each merchant is provisioned with a rotatable API Key (`SHA-256` key hash) and a Webhook Secret (`HMAC-SHA256`) for outbound order dispatch.
 4. **Two-Phase Inventory Lock**: Row-level reservation (`inventory_reservations`) locks inventory for 15 minutes during checkout to prevent overselling.
@@ -152,7 +154,7 @@ Rather than relying on brittle third-party web scrapers or unauthorized marketpl
 
 ---
 
-## 5. Core Modules & Engine Specifications
+## 5. Core Governance & Payment Engines
 
 ### 1. Deterministic Policy Engine (13 Rules)
 Evaluates every purchase intent server-side prior to financial execution:
@@ -164,7 +166,7 @@ Evaluates every purchase intent server-side prior to financial execution:
 6. **Merchant Authenticity & Verification Tier** (`verified_merchants_only`)
 7. **Price Tampering Tolerance Guard** (`price_tolerance_pct` max 2.0%)
 8. **Single-Transaction Hard Spending Ceiling** (`max_transaction`)
-9. **Daily & Monthly Spending Limits + Active Intent Reservation** (`daily_budget` & `monthly_budget`): Enforces that both daily and monthly spending budgets are strictly validated server-side against historical spend plus in-flight reservations.
+9. **Daily & Monthly Spending Limits + Active Intent Reservation** (`daily_budget` & `monthly_budget`)
 10. **5-Minute Sliding Window Duplicate Prevention**
 11. **Maximum Retry Limit Enforcement**
 12. **Autonomous Spending Threshold Gate** (`approval_threshold`)
@@ -180,7 +182,7 @@ Calculates an explainable numerical risk score with granular factor weights:
 * **Tiers**: `LOW` (0–39), `MEDIUM` (40–69), `HIGH` (70–100). High risk automatically escalates compliant intents to human review.
 
 ### 3. Razorpay Payment Service (Test Rails with HMAC-SHA256 Verification)
-* Real backend payment-processing flow against the Razorpay sandbox/test environment (Razorpay Test Rails with HMAC-SHA256 verification, not live financial settlement).
+* Real backend payment-processing flow against the Razorpay sandbox/test environment.
 * Creates Razorpay test orders server-side only after positive policy authorization.
 * Verifies `razorpay_signature` via HMAC-SHA256 (`crypto.createHmac('sha256', secret)`).
 * Validates inbound webhook events against `RAZORPAY_TEST_WEBHOOK_SECRET` with signature verification.
@@ -189,7 +191,7 @@ Calculates an explainable numerical risk score with granular factor weights:
 
 ### 4. Human-in-the-Loop Approval Center
 * Intercepts purchases exceeding autonomous limits (e.g. > ₹25,000) or high-risk scores.
-* Provides one-click supervisor approval or rejection with transparent AI reasoning and policy diffs.
+* Provides supervisor approval or rejection with transparent AI reasoning and policy diffs.
 
 ### 5. Immutable Append-Only Audit Trail
 * Protected by PostgreSQL database trigger `trg_prevent_audit_events_mutation` blocking `UPDATE` and `DELETE` operations.
@@ -197,17 +199,7 @@ Calculates an explainable numerical risk score with granular factor weights:
 
 ---
 
-## 6. Internal Security & Simulation Tooling
-
-For testing and technical evaluations, AgentPay includes isolated administrative and evaluation interfaces:
-
-* **Security Attack Lab (`/security-lab`)**: Demonstrates live defenses against 7 adversarial scenarios (Over-Budget, Price Tampering, Duplicate Replay, Prompt Injection, Revoked Agent, Threshold Escalation, Kill Switch).
-* **Simulation Lab (`/simulation`)**: Benchmark harness evaluating 1,000 synthetic test cases through the live Policy and Risk engines to verify decision consistency.
-* **Technical Evaluation Cockpit (`/judge`)**: 15-step auto-pilot sequence demonstrating the full lifecycle on live backend services.
-
----
-
-## 7. Tech Stack & Environment
+## 6. Tech Stack & Environment
 
 | Layer | Technology | Version / Notes |
 |---|---|---|
@@ -221,7 +213,7 @@ For testing and technical evaluations, AgentPay includes isolated administrative
 
 ---
 
-## 8. Installation & Quick Start
+## 7. Installation & Quick Start
 
 ### Prerequisites
 * Node.js >= 18
@@ -280,25 +272,40 @@ pip install -r requirements.txt
 python main.py
 ```
 
-### 5. Start Frontend Application (Port 5174)
+### 5. Start Frontend Application (Port 5173)
 ```bash
 cd ../frontend
 npm install
 npm run dev
 ```
 
-Application URL: **`http://localhost:5174`**
+Application URL: **`http://localhost:5173`**
+
+---
+
+## 8. Interactive Demo & User Walkthrough
+
+1. **Buyer Natural-Language Procurement**:
+   * Log into the Buyer Portal (`buyer@agentpay.ai` / `password123`).
+   * Type procurement prompts (e.g. *"Buy a 20,000mAh fast-charging power bank under ₹2,500"*).
+   * AgentPay's AI Intent Parser discovers matching products, validates catalog availability, and structures a purchase intent.
+2. **Autonomous Policy Enforcement**:
+   * Small purchases within limits (e.g. ₹1,919) are authorized automatically via Razorpay Test Rails.
+   * Purchases exceeding the auto-spend limit (e.g. ₹34,990 monitor) transition to `APPROVAL_REQUIRED` and appear in the Approval Center.
+3. **Emergency Kill Switch**:
+   * Activate the global or agent-level kill switch from the buyer settings or admin panel to halt all autonomous purchasing immediately.
+4. **Merchant Control Plane**:
+   * Log into the Merchant Portal (`merchant@agentpay.ai` / `password123`).
+   * Manage live product catalogs, view real-time incoming orders, review settlement status, and monitor AI buyer traffic.
 
 ---
 
 ## 9. Automated Test Battery
 
-AgentPay includes a rigorous automated test battery verifying financial safety, concurrency locks, price integrity, payment verification, and prompt defense:
+AgentPay includes an automated test battery verifying financial safety, concurrency locks, price integrity, payment verification, and prompt defense:
 
-* **Backend Test Battery**: **50 test suites, 502 automated tests passing**.
-* **AI Service Suite**: **4 / 4 pytest tests passing** (`tests/test_prompt_guard.py`).
-* **Security Audit Battery**: **8 dedicated security suites (88 / 88 tests passing)**.
-* **Clean-Room E2E Validation**: [`tests/cleanRoomE2EValidation.test.js`](./backend/tests/cleanRoomE2EValidation.test.js).
+* **Backend Test Battery**: **26 test suites, 276 automated tests passing** (Jest).
+* **AI Service Suite**: **4 pytest tests passing** (`tests/test_prompt_guard.py`).
 
 ```bash
 # Run backend test battery
@@ -308,24 +315,11 @@ npm test -- --runInBand
 # Run AI service pytest suite
 cd ../ai-service
 source .venv/bin/activate
-pytest -q
+pytest -v
 ```
 
 ---
 
-## 10. Production Readiness & Live Activation Checklist
+## 10. License
 
-To transition AgentPay from the current competition/test rail environment to live production settlement, the following prerequisites are required:
-
-1. **Production Razorpay Gateway Credentials**: Replace `rzp_test_*` API keys and webhook secrets with verified `rzp_live_*` production credentials and configure live webhook endpoints in the Razorpay Merchant Dashboard.
-2. **Third-Party Logistics (3PL) Integration**: Connect live shipping aggregator APIs (e.g. Shiprocket, Delhivery, Bluedart) to replace simulated fulfillment lifecycles with physical shipping label generation and real carrier tracking.
-3. **Enterprise Key Management (KMS)**: Transition merchant HMAC secrets and database encryption keys to AWS KMS, Google Cloud KMS, or HashiCorp Vault.
-4. **External Webhook Security**: Configure IP whitelisting and mutual TLS (mTLS) for inbound Razorpay webhook ingestion.
-5. **Distributed Redis Sentinel / Cluster**: Deploy a high-availability Redis cluster for production-grade distributed mutex locking under high concurrency.
-6. **Regulatory Compliance & Tax E-Invoicing**: Integrate live GSTN e-invoicing APIs (NIC/IRP) for real-time B2B IRN generation and signed QR codes.
-
----
-
-## 11. License
-
-MIT License — Built for the Razorpay Buildathon under the **AI Growth & Agentic Commerce** track.
+MIT License — Built for the Razorpay AI Buildathon 2026 under **Track 01: AI Growth & Agentic Commerce**.

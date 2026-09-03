@@ -48,6 +48,11 @@ export class MerchantConnectionService {
         GROUP BY merchant_id
       ) sub ON m.id = sub.merchant_id
       WHERE m.is_verified = true
+        AND (m.is_test_lab = false OR m.is_test_lab IS NULL)
+        AND m.name NOT ILIKE 'Truthful Store%'
+        AND m.name NOT ILIKE 'STM Store%'
+        AND m.name NOT ILIKE 'Kill Switch Verified Store%'
+        AND m.name NOT ILIKE 'Secondary Isolated Store%'
       ORDER BY m.name ASC
     `, [userId]);
 
