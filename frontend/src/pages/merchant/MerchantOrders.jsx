@@ -93,6 +93,7 @@ export default function MerchantOrders() {
   });
 
   const totalOrdersCount = summary?.totalOrders ?? orders.length;
+  const confirmedCount = summary?.confirmedCount ?? orders.filter((o) => o.fulfillmentStatus === 'CONFIRMED' || o.orderStatus === 'CONFIRMED').length;
   const processingCount = summary?.processingCount ?? orders.filter((o) => o.fulfillmentStatus === 'PROCESSING').length;
   const packedCount = summary?.packedCount ?? orders.filter((o) => o.fulfillmentStatus === 'PACKED').length;
   const inFulfillmentCount = processingCount + packedCount;
