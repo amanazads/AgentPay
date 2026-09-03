@@ -419,6 +419,18 @@ router.post('/chat', requireAuth, requireBuyer, async (req, res, next) => {
 
         if (response.ok) {
           const data = await response.json();
+          if (data.status === 'BLOCKED') {
+            await recordAuditEvent({
+              eventType: 'PROMPT_INJECTION_DETECTED',
+              action: 'BLOCK_PROMPT_INJECTION',
+              decision: 'BLOCK',
+              userId: finalUserId,
+              agentId: targetAgentId,
+              reasoning: 'AI Prompt Guard blocked adversarial prompt override attempt',
+              metadata: { message: cleanMessage, guardData: data.intent_parsed },
+            });
+            return res.json(data);
+          }
           if (data.intent_parsed) {
             parsedIntent = { ...parsedIntent, ...data.intent_parsed };
           }
@@ -456,7 +468,7 @@ router.post('/chat', requireAuth, requireBuyer, async (req, res, next) => {
           }
         }
       } catch (pyErr) {
-        // FastAPI service offline, proceed to high-performance native orchestrator
+        logger.warn('AI', `FastAPI service communication failed: ${pyErr.message}`);
       }
     }
 

@@ -27,11 +27,17 @@ agent = AIBuyerAgent(tools=tools, memory=memory)
 
 @app.get("/health")
 async def health_check():
+    gemini_configured = bool(settings.GEMINI_API_KEY and settings.GEMINI_MODEL and agent.model is not None)
     return {
         "status": "healthy",
         "service": "AgentPay AI Service",
         "version": "1.0.0",
         "port": settings.PORT,
+        "gemini": {
+            "configured": gemini_configured,
+            "model": settings.GEMINI_MODEL if gemini_configured else None,
+        },
+        "fallback_mode": "deterministic_catalog_grounding",
     }
 
 @app.post("/chat", response_model=ChatResponse)

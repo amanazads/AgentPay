@@ -26,15 +26,24 @@ SECURITY RULES:
 """
 
 gemini_model = None
-if settings.GEMINI_API_KEY:
+if settings.GEMINI_API_KEY and settings.GEMINI_MODEL:
     try:
         genai.configure(api_key=settings.GEMINI_API_KEY)
         gemini_model = genai.GenerativeModel(
-            model_name="gemini-1.5-pro",
+            model_name=settings.GEMINI_MODEL,
             system_instruction=SYSTEM_INSTRUCTION,
         )
+        print(f"[Gemini Config] Initialized with configured model: {settings.GEMINI_MODEL}")
     except Exception as e:
-        print(f"[Gemini Config Warning] {e}")
+        print(f"[Gemini Config Warning] Initialization failed for model '{settings.GEMINI_MODEL}': {e}")
+        gemini_model = None
+else:
+    if not settings.GEMINI_API_KEY and not settings.GEMINI_MODEL:
+        print("[Gemini Config] Neither GEMINI_API_KEY nor GEMINI_MODEL configured. Using deterministic fallback.")
+    elif not settings.GEMINI_API_KEY:
+        print("[Gemini Config] GEMINI_API_KEY not configured. Using deterministic fallback.")
+    else:
+        print("[Gemini Config] GEMINI_MODEL not configured. Using deterministic fallback.")
 
 class AIBuyerAgent:
     """
@@ -381,8 +390,25 @@ Return ONLY a valid JSON object matching this schema:
     ) -> ChatResponse:
         tools_called = ["search_authoritative_catalog", "evaluate_hard_constraints"]
         
-        # 1. Threat check on user input
+        # 1. Threat check on user input — Fail closed immediately if adversarial prompt injection detected
         guard_res = PromptInjectionGuard.detect_injection_threat(message)
+        if guard_res.get("threat_detected"):
+            return ChatResponse(
+                status="BLOCKED",
+                agent_name="AgentPay Security Guard",
+                reply="Request blocked: Input contains an instruction override, prompt injection, or security policy bypass attempt. All procurement spending boundaries and policies remain strictly enforced.",
+                intent_parsed={"threat_detected": True, "category": guard_res.get("category", "PROMPT_INJECTION_THREAT")},
+                recommendation=None,
+                proposed_action=None,
+                authorization_status=AuthorizationStatus(
+                    state="BLOCKED",
+                    explanation="Adversarial prompt injection pattern detected. No LLM reasoning or financial execution permitted.",
+                    policy_summary="Security control plane blocked malicious prompt.",
+                ),
+                tools_called=["detect_injection_threat"],
+                purchase_intent=None,
+                evaluation=None,
+            )
         
         # 2. Parse intent & extract hard constraints (Gemini Reasoning + Deterministic Grounding)
         intent_data = await self.interpret_with_gemini(message)
@@ -467,39 +493,8 @@ Return ONLY a valid JSON object matching this schema:
             merchant_name=merchant_name,
         )
 
-        # 7. Submit to Backend Policy Decision Engine
-        purchase_intent_record = None
-        evaluation_record = None
-        
-        if effective_agent_id:
-            tools_called.append("create_purchase_intent")
-            intent_res = await self.tools.create_purchase_intent(
-                agent_id=effective_agent_id,
-                product_id=prod_id,
-                amount=total_amount,
-                merchant_id=merchant_id,
-                user_id=user_id,
-                ai_reasoning=f"AI Agent selected '{recommendation.name}' for ₹{total_amount:,.0f} matching user criteria: {message}",
-                ai_recommendation=recommendation.reason,
-            )
-            purchase_intent_record = intent_res.get("purchaseIntent")
-            evaluation_record = intent_res.get("evaluation")
-
         decision_state = "AWAITING_POLICY_EVALUATION"
-        auth_explanation = f"I found the {prod_name} for ₹{total_amount:,.0f}. I have structured a purchase intent, which will now be evaluated deterministically by the AgentPay policy engine."
-        
-        if evaluation_record:
-            dec = evaluation_record.get("decision")
-            if dec == "ALLOW":
-                decision_state = "ALLOWED"
-                auth_explanation = f"AgentPay Policy Engine evaluated and ALLOWED this purchase (₹{total_amount:,.0f} within autonomous limit). Razorpay test order can now be generated."
-            elif dec == "APPROVAL_REQUIRED":
-                decision_state = "APPROVAL_REQUIRED"
-                actual_threshold = evaluation_record.get("policyResult", {}).get("threshold") or evaluation_record.get("threshold") or 50000
-                auth_explanation = f"AgentPay Policy Engine requires HUMAN APPROVAL (Amount ₹{total_amount:,.0f} exceeds autonomous spending threshold of ₹{actual_threshold:,.0f}). Routed to Approval Center."
-            elif dec == "BLOCK":
-                decision_state = "BLOCKED"
-                auth_explanation = f"AgentPay Policy Engine BLOCKED this transaction: {evaluation_record.get('reason')}."
+        auth_explanation = f"I found the {prod_name} for ₹{total_amount:,.0f}. I have structured a proposed purchase intent, which will now be evaluated deterministically by the authoritative AgentPay policy engine."
 
         reply_text = (
             f"I found the **{prod_name}** from *{merchant_name}* for **₹{total_amount:,.0f}**" + (f" ({quantity} units @ ₹{unit_price:,.0f}/unit)" if quantity > 1 else "") + " that satisfies your requirements.\n\n"
@@ -517,9 +512,9 @@ Return ONLY a valid JSON object matching this schema:
             authorization_status=AuthorizationStatus(
                 state=decision_state,
                 explanation=auth_explanation,
-                policy_summary="Deterministic spending policies evaluated server-side. LLM has zero direct payment authority.",
+                policy_summary="Deterministic spending policies evaluated server-side by control plane. LLM has zero direct financial authority.",
             ),
             tools_called=tools_called,
-            purchase_intent=purchase_intent_record,
-            evaluation=evaluation_record,
+            purchase_intent=None,
+            evaluation=None,
         )

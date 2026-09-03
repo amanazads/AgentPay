@@ -217,6 +217,7 @@ const env = {
   // AI Service
   AI_SERVICE_URL: process.env.AI_SERVICE_URL || 'http://localhost:8000',
   GEMINI_API_KEY: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '',
+  GEMINI_MODEL: (process.env.GEMINI_MODEL || '').trim(),
 
   // Flags & Descriptors
   isProduction,

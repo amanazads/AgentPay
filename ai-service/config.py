@@ -7,6 +7,7 @@ load_dotenv(dotenv_path=env_path)
 class Settings:
     PORT: int = int(os.getenv("AI_SERVICE_PORT", "8000"))
     BACKEND_API_URL: str = os.getenv("BACKEND_API_URL", "http://localhost:5050/api")
-    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY", "")
+    GEMINI_API_KEY: str = (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip()
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "").strip()
 
 settings = Settings()
