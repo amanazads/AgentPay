@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import crypto from 'crypto';
+import env from '../config/env.js';
 import { createPaymentOrder, verifyPayment } from '../services/paymentService.js';
 import { query } from '../config/database.js';
 import { getUserIdFromRequest } from '../utils/authUtils.js';
@@ -179,6 +181,103 @@ router.post(['/verify', '/:id/verify'], async (req, res, next) => {
         code: err.code,
         details: err.details,
       });
+    }
+    next(err);
+  }
+});
+
+// POST /api/payments/:id/sandbox-settle — TEST-ONLY server-side sandbox settlement
+//
+// Why this exists: in the hackathon sandbox there is no Razorpay Checkout widget
+// returning a real payment signature. Previously the browser manufactured a
+// placeholder signature and posted it to /verify. That is exactly the pattern
+// that must never be able to reach live rails, so the simulation now lives
+// server-side, behind an explicit TEST-only endpoint, and the signature is
+// computed with the server's own test key secret.
+//
+// Hard invariants:
+//   - refuses outright whenever the platform is in LIVE payment mode
+//   - refuses for any transaction not recorded as a TEST/sandbox transaction
+//   - refuses when the test key secret is absent (no "assume verified" path)
+//   - the browser never supplies, and never learns, a payment signature
+router.post(['/sandbox-settle', '/:id/sandbox-settle'], async (req, res, next) => {
+  try {
+    // Gate 1: platform-level live lock.
+    if (env.isLiveMode || env.PAYMENT_MODE === 'live') {
+      return res.status(403).json({
+        error: 'Sandbox settlement is disabled: platform is running in LIVE payment mode.',
+        code: 'SANDBOX_SETTLE_FORBIDDEN_IN_LIVE',
+      });
+    }
+
+    const userId = getUserIdFromRequest(req);
+    const uRes = await query('SELECT role FROM users WHERE id::text = $1', [userId]);
+    const role = (uRes.rows[0]?.role || '').toUpperCase();
+    if (role === 'MERCHANT') {
+      return res.status(403).json({ error: 'Forbidden: Merchant accounts cannot settle buyer payments' });
+    }
+
+    const transactionId = req.body?.transaction_id || req.body?.transactionId || req.params.id;
+    const razorpayOrderId = req.body?.razorpay_order_id || req.body?.razorpayOrderId || req.params.id;
+
+    const txRes = await query(`
+      SELECT t.id, t.user_id, t.razorpay_order_id, t.environment, t.payment_mode, t.status,
+             pi.user_id AS intent_user_id
+      FROM transactions t
+      JOIN purchase_intents pi ON t.purchase_intent_id = pi.id
+      WHERE t.id::text = $1 OR t.razorpay_order_id = $2
+      LIMIT 1
+    `, [transactionId || null, razorpayOrderId || null]);
+
+    if (txRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Transaction not found' });
+    }
+    const tx = txRes.rows[0];
+
+    // Gate 2: ownership.
+    const ownerId = tx.user_id || tx.intent_user_id;
+    if (role !== 'ADMIN' && ownerId && String(ownerId) !== String(userId)) {
+      return res.status(404).json({ error: 'Transaction not found' });
+    }
+
+    // Gate 3: the transaction itself must be a sandbox transaction.
+    const txEnv = (tx.environment || tx.payment_mode || 'TEST').toUpperCase();
+    if (txEnv !== 'TEST') {
+      return res.status(403).json({
+        error: `Sandbox settlement refused: transaction ${tx.id} is recorded on ${txEnv} rails.`,
+        code: 'SANDBOX_SETTLE_FORBIDDEN_NON_TEST',
+      });
+    }
+
+    // Gate 4: no credentials means no verification — fail closed, never assume.
+    if (!env.RAZORPAY_TEST_KEY_SECRET) {
+      return res.status(503).json({
+        error: 'Sandbox settlement unavailable: RAZORPAY_TEST_KEY_SECRET is not configured. Payment cannot be cryptographically verified.',
+        code: 'PAYMENT_CREDENTIALS_MISSING',
+      });
+    }
+
+    const orderId = tx.razorpay_order_id;
+    const sandboxPaymentId = `pay_sbx_${crypto.randomBytes(8).toString('hex')}`;
+    const sandboxSignature = crypto
+      .createHmac('sha256', env.RAZORPAY_TEST_KEY_SECRET)
+      .update(`${orderId}|${sandboxPaymentId}`)
+      .digest('hex');
+
+    const io = req.app.get('io');
+    const result = await verifyPayment({
+      transactionId: tx.id,
+      razorpayOrderId: orderId,
+      razorpayPaymentId: sandboxPaymentId,
+      razorpaySignature: sandboxSignature,
+      quoteId: req.body?.quote_id || req.body?.quoteId || null,
+      io,
+    });
+
+    res.json({ ...result, environment: 'TEST', settledVia: 'server-side-sandbox' });
+  } catch (err) {
+    if (err instanceof QuoteVerificationError) {
+      return res.status(400).json({ success: false, error: err.message, code: err.code, details: err.details });
     }
     next(err);
   }

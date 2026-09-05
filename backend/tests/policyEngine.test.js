@@ -49,29 +49,29 @@ describe('AgentPay Deterministic Policy Engine', () => {
 
     // Create products
     const p1 = await query(`
-      INSERT INTO products (merchant_id, name, description, category, price, currency, in_stock, specifications)
-      VALUES ($1, 'Test Mouse', 'Wireless Mouse', 'peripherals', 4999, 'INR', true, '{"wireless": true}')
+      INSERT INTO products (merchant_id, name, description, category, price, currency, in_stock, inventory, specifications)
+      VALUES ($1, 'Test Mouse', 'Wireless Mouse', 'peripherals', 4999, 'INR', true, 100, '{"wireless": true}')
       RETURNING *
     `, [testMerchantId]);
     normalProduct = p1.rows[0];
 
     const p2 = await query(`
-      INSERT INTO products (merchant_id, name, description, category, price, currency, in_stock, specifications)
-      VALUES ($1, 'Test Monitor', '4K Monitor', 'peripherals', 32000, 'INR', true, '{"resolution": "4K"}')
+      INSERT INTO products (merchant_id, name, description, category, price, currency, in_stock, inventory, specifications)
+      VALUES ($1, 'Test Monitor', '4K Monitor', 'peripherals', 32000, 'INR', true, 100, '{"resolution": "4K"}')
       RETURNING *
     `, [testMerchantId]);
     thresholdProduct = p2.rows[0];
 
     const p3 = await query(`
-      INSERT INTO products (merchant_id, name, description, category, price, currency, in_stock, specifications)
-      VALUES ($1, 'Test Server', 'High End Server', 'electronics', 75000, 'INR', true, '{"cpu": "64 core"}')
+      INSERT INTO products (merchant_id, name, description, category, price, currency, in_stock, inventory, specifications)
+      VALUES ($1, 'Test Server', 'High End Server', 'electronics', 75000, 'INR', true, 100, '{"cpu": "64 core"}')
       RETURNING *
     `, [testMerchantId]);
     overBudgetProduct = p3.rows[0];
 
     const p4 = await query(`
-      INSERT INTO products (merchant_id, name, description, category, price, currency, in_stock, specifications)
-      VALUES ($1, 'Fake Product', 'Unverified Product', 'electronics', 9999, 'INR', true, '{}')
+      INSERT INTO products (merchant_id, name, description, category, price, currency, in_stock, inventory, specifications)
+      VALUES ($1, 'Fake Product', 'Unverified Product', 'electronics', 9999, 'INR', true, 100, '{}')
       RETURNING *
     `, [unverifiedMerchantId]);
     unverifiedProduct = p4.rows[0];
@@ -152,8 +152,8 @@ describe('AgentPay Deterministic Policy Engine', () => {
 
   test('Rule 5: BLOCK when category is in blocked list', async () => {
     const pBlocked = await query(`
-      INSERT INTO products (merchant_id, name, description, category, price, in_stock)
-      VALUES ($1, 'Diamond Watch', 'Luxury Watch', 'luxury', 10000, true)
+      INSERT INTO products (merchant_id, name, description, category, price, in_stock, inventory)
+      VALUES ($1, 'Diamond Watch', 'Luxury Watch', 'luxury', 10000, true, 100)
       RETURNING *
     `, [testMerchantId]);
 

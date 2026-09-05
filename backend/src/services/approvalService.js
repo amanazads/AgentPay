@@ -76,7 +76,8 @@ export async function processApproval({
     // 1. Fetch & Lock Approval Record FOR UPDATE
     const appRes = await client.query(`
       SELECT ap.*, pi.id as intent_id, pi.amount, pi.agent_id, pi.user_id, pi.product_id as intent_product_id,
-             pi.quantity as intent_quantity, a.name as agent_name, a.owner_id as agent_owner_id,
+             pi.quantity as intent_quantity, pi.quote_id as intent_quote_id,
+             a.name as agent_name, a.owner_id as agent_owner_id,
              p.name as product_name, p.price as live_product_price, p.inventory as live_inventory, p.in_stock
       FROM approvals ap
       JOIN purchase_intents pi ON ap.purchase_intent_id = pi.id
@@ -264,25 +265,69 @@ export async function processApproval({
   });
 
   let paymentOrder = null;
+  let paymentError = null;
+  let paymentSettled = false;
+
   if (isApproved && autoCreatePayment) {
-    paymentOrder = await createPaymentOrder(appRecord.intent_id, io);
+    // BUGFIX: the second argument is the options bag, not the socket. Passing
+    // `io` positionally meant the socket was dropped AND the bound quote id was
+    // never forwarded, so the payment order skipped price-lock revalidation.
+    paymentOrder = await createPaymentOrder(appRecord.intent_id, {
+      io,
+      quoteId: appRecord.intent_quote_id || null,
+    });
+
     if (paymentOrder && paymentOrder.transactionId) {
-      try {
-        const autoPaymentId = `pay_${crypto.randomBytes(8).toString('hex')}`;
-        const hmacBody = `${paymentOrder.orderId}|${autoPaymentId}`;
-        const autoSignature = crypto
-          .createHmac('sha256', env.RAZORPAY_TEST_KEY_SECRET)
-          .update(hmacBody)
-          .digest('hex');
-        await verifyPayment({
-          transactionId: paymentOrder.transactionId,
-          razorpayOrderId: paymentOrder.orderId,
-          razorpayPaymentId: autoPaymentId,
-          razorpaySignature: autoSignature,
-          io,
-        });
-      } catch (verErr) {
-        console.error('[ApprovalService] Auto-settle verification failed:', verErr.message);
+      // SECURITY (test/live isolation): synthetic settlement is a sandbox-only
+      // affordance. On LIVE rails a real Razorpay callback is the only way a
+      // payment may be verified, so we never fabricate one here.
+      const txMode = String(paymentOrder.paymentMode || paymentOrder.environment || 'TEST').toUpperCase();
+      const sandboxSettlementAllowed = !env.isLiveMode && env.PAYMENT_MODE !== 'live' && txMode === 'TEST';
+
+      if (!sandboxSettlementAllowed) {
+        paymentError = 'Approval recorded. Payment order created on LIVE rails and awaits a real Razorpay payment callback; no synthetic settlement was performed.';
+        logger.info('Approval', paymentError);
+      } else if (!env.RAZORPAY_TEST_KEY_SECRET) {
+        // Fail closed: without the key secret there is no way to produce a
+        // verifiable signature, and "assume verified" is never acceptable.
+        paymentError = 'Sandbox settlement unavailable: RAZORPAY_TEST_KEY_SECRET is not configured, so the payment could not be cryptographically verified.';
+        logger.error('Approval', paymentError);
+      } else {
+        try {
+          const autoPaymentId = `pay_${crypto.randomBytes(8).toString('hex')}`;
+          const hmacBody = `${paymentOrder.orderId}|${autoPaymentId}`;
+          const autoSignature = crypto
+            .createHmac('sha256', env.RAZORPAY_TEST_KEY_SECRET)
+            .update(hmacBody)
+            .digest('hex');
+          await verifyPayment({
+            transactionId: paymentOrder.transactionId,
+            razorpayOrderId: paymentOrder.orderId,
+            razorpayPaymentId: autoPaymentId,
+            razorpaySignature: autoSignature,
+            quoteId: appRecord.intent_quote_id || null,
+            io,
+          });
+          paymentSettled = true;
+        } catch (verErr) {
+          // Do not swallow: the caller approved a purchase that did not settle,
+          // and the UI must be able to say so rather than showing success.
+          paymentError = verErr.message || 'Payment verification failed after approval.';
+          logger.error('Approval', `Auto-settle verification failed for intent ${appRecord.intent_id}: ${paymentError}`);
+          await recordAuditEvent({
+            eventType: 'APPROVAL_SETTLEMENT_FAILED',
+            actor: 'system',
+            agentId: appRecord.agent_id,
+            userId: reviewerId || appRecord.user_id,
+            purchaseIntentId: appRecord.intent_id,
+            action: 'SETTLE_APPROVED_PURCHASE',
+            decision: 'BLOCK',
+            reasoning: paymentError,
+            outcome: 'Approval stands, but no payment was settled.',
+            metadata: { approvalId, transactionId: paymentOrder.transactionId },
+            io,
+          }).catch(() => {});
+        }
       }
     }
   }
@@ -303,6 +348,19 @@ export async function processApproval({
     decision: decision.toUpperCase(),
     intentId: appRecord.intent_id,
     paymentOrder,
+    // Settlement is reported separately from the approval decision: an approval
+    // that was recorded but did not settle must never read as a completed order.
+    paymentSettled,
+    paymentError,
+    executionStatus: !isApproved
+      ? 'REJECTED'
+      : paymentSettled
+        ? 'COMPLETED'
+        : paymentError
+          ? 'PAYMENT_FAILED'
+          : autoCreatePayment
+            ? 'PAYMENT_PENDING'
+            : 'APPROVED',
   };
 }
 

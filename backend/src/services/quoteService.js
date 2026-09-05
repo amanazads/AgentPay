@@ -450,14 +450,31 @@ export async function verifyQuoteForCheckout(quoteInput, context = {}) {
   }
 
   // 5. Contextual Intent Matching (Product / Merchant / Quantity / Amount / Buyer / Agent)
-  if (userId && quoteObj.userId && String(userId) !== String(quoteObj.userId)) {
-    if (quoteObj.quoteId) {
-      await releaseReservation(quoteObj.quoteId, 'Unauthorized quote consumer').catch(() => {});
+  //
+  // Fail-closed ownership binding. A quote presented on behalf of a specific
+  // buyer must be owned by that buyer. An ownerless quote is NOT treated as
+  // public property: if the caller asserts a buyer identity, the quote must
+  // carry the same one, otherwise the price lock could be consumed by anyone
+  // who learns (or guesses) its id.
+  if (userId) {
+    if (!quoteObj.userId) {
+      if (quoteObj.quoteId) {
+        await releaseReservation(quoteObj.quoteId, 'Quote is not bound to a buyer').catch(() => {});
+      }
+      throw new QuoteVerificationError(
+        QuoteErrorCodes.UNAUTHORIZED_QUOTE_CONSUMER,
+        `Quote '${quoteObj.quoteId}' is not bound to a buyer identity and cannot be consumed.`
+      );
     }
-    throw new QuoteVerificationError(
-      QuoteErrorCodes.UNAUTHORIZED_QUOTE_CONSUMER,
-      `Quote '${quoteObj.quoteId}' belongs to a different buyer (${quoteObj.userId}) and cannot be consumed by user (${userId}).`
-    );
+    if (String(userId) !== String(quoteObj.userId)) {
+      if (quoteObj.quoteId) {
+        await releaseReservation(quoteObj.quoteId, 'Unauthorized quote consumer').catch(() => {});
+      }
+      throw new QuoteVerificationError(
+        QuoteErrorCodes.UNAUTHORIZED_QUOTE_CONSUMER,
+        `Quote '${quoteObj.quoteId}' belongs to a different buyer and cannot be consumed by user (${userId}).`
+      );
+    }
   }
 
   if (agentId && quoteObj.agentId && String(agentId) !== String(quoteObj.agentId)) {
