@@ -98,6 +98,7 @@ router.get('/catalog', async (req, res, next) => {
       title: row.name,
       description: row.description,
       category: row.category,
+      productType: row.product_type || 'other',
       brand: row.brand || 'Verified Hardware',
       pricing: {
         amount: parseFloat(row.price),
@@ -204,6 +205,7 @@ router.get('/catalog/:productId', async (req, res, next) => {
       title: row.name,
       description: row.description,
       category: row.category,
+      productType: row.product_type || 'other',
       brand: row.brand,
       pricing: {
         amount: parseFloat(row.price),

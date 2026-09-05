@@ -164,6 +164,9 @@ Return ONLY a valid JSON object matching this schema:
         elif any(w in msg_lower for w in ["headphone", "headphones", "earphones", "earbuds", "airpods", "wh-1000xm5", "quietcomfort", "accentum"]):
             product_type = "headphones"
             category = "electronics"
+        elif any(re.search(r'\b' + re.escape(w) + r'\b', msg_lower) for w in ["phone", "smartphone", "iphone", "galaxy", "pixel", "mobile", "handset"]):
+            product_type = "smartphone"
+            category = "electronics"
         elif any(w in msg_lower for w in ["laptop", "computer", "macbook", "thinkpad", "zephyrus", "tuf"]):
             product_type = "laptop"
             category = "electronics"
@@ -309,6 +312,12 @@ Return ONLY a valid JSON object matching this schema:
                 matches_type = p_type == "mouse" or "mouse" in p_name or "mx master" in p_name
             elif req_type == "keyboard":
                 matches_type = p_type == "keyboard" or "keyboard" in p_name or "keychron" in p_name
+            elif req_type in ["smartphone", "phone"]:
+                is_headphone = "headphone" in p_name or "earphone" in p_name or "earbud" in p_name or "wh-1000xm5" in p_name
+                matches_type = not is_headphone and (
+                    p_type in ["smartphone", "phone", "mobile"] or
+                    bool(re.search(r'\b(phone|smartphone|iphone|galaxy|pixel|mobile|handset)\b', p_name))
+                )
             elif req_type == "chair":
                 matches_type = p_type == "chair" or "chair" in p_name or "aeron" in p_name
             elif req_type == "desk":

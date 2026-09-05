@@ -217,14 +217,18 @@ export async function findEligibleProducts(intent, { merchantId = null, userId =
         isTypeMatch = pType === 'chair' || pName.includes('chair') || pName.includes('aeron');
       } else if (productType === 'desk') {
         isTypeMatch = pType === 'desk' || pName.includes('desk');
-      } else if (productType === 'smartphone') {
-        isTypeMatch = pType === 'smartphone' || pName.includes('iphone') || pName.includes('galaxy') || pName.includes('pixel');
+      } else if (productType === 'smartphone' || productType === 'phone') {
+        const isAudioDevice = pType === 'headphones' || /\b(headphone|headphones|earphone|earphones|earbud|earbuds|headset|airpods|wh-1000xm5|quietcomfort|accentum)\b/i.test(pName);
+        isTypeMatch = !isAudioDevice && (
+          pType === 'smartphone' || pType === 'phone' || pType === 'mobile' ||
+          /\b(phone|smartphone|iphone|galaxy|pixel|mobile|handset)\b/i.test(pName)
+        );
       } else if (productType === 'dock') {
         isTypeMatch = pType === 'dock' || pName.includes('dock') || pName.includes('caldigit');
       } else if (productType === 'software') {
         isTypeMatch = pType === 'software' || pName.includes('license') || pName.includes('figma') || pName.includes('jetbrains');
       } else {
-        isTypeMatch = pType === productType || pName.includes(productType) || pCat.includes(productType);
+        isTypeMatch = pType === productType || (productType.length > 3 && pName.includes(productType)) || pCat.includes(productType);
       }
 
       if (!isTypeMatch) {
@@ -246,8 +250,14 @@ export async function findEligibleProducts(intent, { merchantId = null, userId =
         const pDesc = (prod.description || '').toLowerCase();
         const pKeywords = Array.isArray(prod.ai_keywords) ? prod.ai_keywords.map((k) => k.toLowerCase()) : [];
 
+        const containsToken = (text, tok) => {
+          if (!text) return false;
+          const rx = new RegExp(`(^|[^a-z0-9])${tok.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9]|$)`, 'i');
+          return rx.test(text);
+        };
+
         const matchingTokens = queryTokens.filter((tok) =>
-          pName.includes(tok) || pBrand.includes(tok) || pCat.includes(tok) || pDesc.includes(tok) || pKeywords.includes(tok)
+          containsToken(pName, tok) || containsToken(pBrand, tok) || containsToken(pCat, tok) || containsToken(pDesc, tok) || pKeywords.some(k => containsToken(k, tok))
         );
 
         const matchRatio = matchingTokens.length / queryTokens.length;

@@ -168,13 +168,31 @@ export async function validatePurchaseCandidate(candidate, intent, { userSpendin
     } else if (intent.productType === 'charger') {
       matchesType = pType === 'charger' || pName.includes('charger') || pName.includes('powerport') || pName.includes('adapter');
     } else if (intent.productType === 'headphones') {
-      matchesType = pType === 'headphones' || pName.includes('headphone') || pName.includes('wh-1000xm5') || pName.includes('quietcomfort');
+      matchesType = pType === 'headphones' || pName.includes('headphone') || pName.includes('wh-1000xm5') || pName.includes('quietcomfort') || pName.includes('accentum') || pName.includes('earbuds');
     } else if (intent.productType === 'laptop') {
-      matchesType = pType === 'laptop' || pName.includes('laptop') || pName.includes('macbook');
+      matchesType = pType === 'laptop' || pName.includes('laptop') || pName.includes('macbook') || pName.includes('zephyrus') || pName.includes('tuf') || pName.includes('xps');
+    } else if (intent.productType === 'monitor') {
+      matchesType = pType === 'monitor' || pName.includes('monitor') || pName.includes('display') || pName.includes('ultrasharp') || pName.includes('ultrafine');
     } else if (intent.productType === 'mouse') {
-      matchesType = pType === 'mouse' || pName.includes('mouse');
+      matchesType = pType === 'mouse' || pName.includes('mouse') || pName.includes('mx master');
+    } else if (intent.productType === 'keyboard') {
+      matchesType = pType === 'keyboard' || pName.includes('keyboard') || pName.includes('keychron');
+    } else if (intent.productType === 'chair') {
+      matchesType = pType === 'chair' || pName.includes('chair') || pName.includes('aeron');
+    } else if (intent.productType === 'desk') {
+      matchesType = pType === 'desk' || pName.includes('desk');
+    } else if (intent.productType === 'smartphone' || intent.productType === 'phone') {
+      const isAudioDevice = pType === 'headphones' || /\b(headphone|headphones|earphone|earphones|earbud|earbuds|headset|airpods|wh-1000xm5|quietcomfort|accentum)\b/i.test(pName);
+      matchesType = !isAudioDevice && (
+        pType === 'smartphone' || pType === 'phone' || pType === 'mobile' ||
+        /\b(phone|smartphone|iphone|galaxy|pixel|mobile|handset)\b/i.test(pName)
+      );
+    } else if (intent.productType === 'dock') {
+      matchesType = pType === 'dock' || pName.includes('dock') || pName.includes('caldigit');
+    } else if (intent.productType === 'software') {
+      matchesType = pType === 'software' || pName.includes('license') || pName.includes('figma') || pName.includes('jetbrains');
     } else {
-      matchesType = pType === intent.productType || pName.includes(intent.productType);
+      matchesType = pType === intent.productType || (intent.productType.length > 3 && pName.includes(intent.productType));
     }
 
     if (!matchesType) {

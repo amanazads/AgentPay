@@ -565,29 +565,33 @@ router.post('/products/ai-autofill', async (req, res, next) => {
 
     const KNOWLEDGE_BASE = [
       {
-        triggers: ['iphone', 'apple phone', 'ios'],
-        name: 'Apple iPhone 15 Pro (128GB, Natural Titanium)',
+        triggers: ['macbook air', 'mac air', 'apple m4', 'macbook air m4', 'm4 macbook', 'macbook air 16gb'],
+        sku: 'SKU-APL-MBA-M4-512',
+        name: 'Apple MacBook Air M4 (16GB Unified Memory, 512GB SSD, Midnight)',
         brand: 'Apple',
         category: 'Electronics',
-        price: 129900,
+        price: 124900,
         inventory: 40,
-        aiSummary: 'Flagship smartphone powered by A17 Pro chip, aerospace-grade titanium design, and 48MP main camera with USB-C.',
-        targetAudience: 'Professionals, Creators & Executive Tech Users',
-        useCases: ['Mobile Computing', '4K Video Production', 'Everyday Productivity'],
-        keywords: ['apple', 'iphone', 'iphone 15 pro', 'titanium', 'smartphone', 'ios', 'a17 pro'],
+        aiSummary: 'Ultra-thin, ultra-fast laptop powered by the next-generation Apple M4 chip with 16GB unified memory, Liquid Retina display, and up to 18 hours battery life.',
+        targetAudience: 'Software Developers, Creators, Students & Business Professionals',
+        useCases: ['Software Development', '4K Media Editing', 'Enterprise Productivity'],
+        keywords: ['apple', 'macbook air', 'm4', 'laptop', 'midnight', '16gb', '512gb'],
         marginTier: 'high',
         isPromoted: true,
         specifications: {
-          storage: '128GB',
-          chip: 'A17 Pro',
-          screen_size: '6.1-inch OLED 120Hz',
-          camera: '48MP Main + 12MP Ultra-Wide + 12MP 3x Telephoto',
-          connector: 'USB-C (USB 3.0)',
+          processor: 'Apple M4 chip (10-core CPU, 10-core GPU, 16-core Neural Engine)',
+          memory: '16GB Unified Memory',
+          storage: '512GB NVMe SSD',
+          display: '13.6-inch Liquid Retina Display with True Tone',
+          color: 'Midnight',
+          battery_hours: 18,
+          ports: '2x Thunderbolt 4, MagSafe 3, 3.5mm Headphone Jack',
           fast_charge: true,
         },
       },
       {
-        triggers: ['macbook', 'mac', 'apple laptop', 'm3'],
+        triggers: ['macbook pro', 'm3 pro', 'm4 pro', 'mbp', 'macbook', 'apple laptop'],
+        sku: 'SKU-APL-MBP14-M3',
         name: 'Apple MacBook Pro 14" (M3 Pro, 18GB Unified Memory, 512GB SSD)',
         brand: 'Apple',
         category: 'Electronics',
@@ -609,7 +613,31 @@ router.post('/products/ai-autofill', async (req, res, next) => {
         },
       },
       {
-        triggers: ['sony', 'headphone', 'headphones', 'anc', 'wh-1000xm5', 'audio'],
+        triggers: ['iphone 15 pro', 'iphone 15', 'iphone', 'apple phone', 'ios'],
+        sku: 'SKU-APL-IP15P-128',
+        name: 'Apple iPhone 15 Pro (128GB, Natural Titanium)',
+        brand: 'Apple',
+        category: 'Electronics',
+        price: 129900,
+        inventory: 40,
+        aiSummary: 'Flagship smartphone powered by A17 Pro chip, aerospace-grade titanium design, and 48MP main camera with USB-C.',
+        targetAudience: 'Professionals, Creators & Executive Tech Users',
+        useCases: ['Mobile Computing', '4K Video Production', 'Everyday Productivity'],
+        keywords: ['apple', 'iphone', 'iphone 15 pro', 'titanium', 'smartphone', 'ios', 'a17 pro'],
+        marginTier: 'high',
+        isPromoted: true,
+        specifications: {
+          storage: '128GB',
+          chip: 'A17 Pro',
+          screen_size: '6.1-inch OLED 120Hz',
+          camera: '48MP Main + 12MP Ultra-Wide + 12MP 3x Telephoto',
+          connector: 'USB-C (USB 3.0)',
+          fast_charge: true,
+        },
+      },
+      {
+        triggers: ['sony wh-1000xm5', 'wh-1000xm5', 'sony headphones', 'wh1000xm5', 'anc headphones', 'sony anc', 'headphones'],
+        sku: 'SKU-SNY-WH1000XM5',
         name: 'Sony WH-1000XM5 Wireless Noise-Cancelling Headphones',
         brand: 'Sony',
         category: 'Peripherals',
@@ -631,7 +659,8 @@ router.post('/products/ai-autofill', async (req, res, next) => {
         },
       },
       {
-        triggers: ['logitech', 'mouse', 'mx master', 'mx master 3s'],
+        triggers: ['logitech mx master', 'mx master 3s', 'mx master', 'logitech mouse', 'mouse'],
+        sku: 'SKU-LOG-MXM3S',
         name: 'Logitech MX Master 3S Wireless Performance Mouse',
         brand: 'Logitech',
         category: 'Peripherals',
@@ -653,7 +682,8 @@ router.post('/products/ai-autofill', async (req, res, next) => {
         },
       },
       {
-        triggers: ['power bank', 'ambrane', '20000mah', 'charger'],
+        triggers: ['ambrane 20000mah', 'power bank', 'powerbank', 'ambrane', 'stylo 20k'],
+        sku: 'SKU-AMB-STYLO20K',
         name: 'Ambrane 20000mAh 22.5W Fast Charging Power Bank (Stylo 20k)',
         brand: 'Ambrane',
         category: 'Electronics',
@@ -678,20 +708,39 @@ router.post('/products/ai-autofill', async (req, res, next) => {
     let match = null;
     if (cleanPrompt) {
       const lower = cleanPrompt.toLowerCase();
-      match = KNOWLEDGE_BASE.find((item) =>
-        item.triggers.some((t) => lower.includes(t)) ||
-        lower.includes(item.brand.toLowerCase()) ||
-        lower.includes(item.name.toLowerCase())
-      );
+      // 1. Check specific multi-word triggers first (sorted by trigger length descending)
+      const scoredMatches = [];
+      for (const item of KNOWLEDGE_BASE) {
+        for (const t of item.triggers) {
+          if (lower.includes(t)) {
+            scoredMatches.push({ item, score: t.length });
+          }
+        }
+      }
+      if (scoredMatches.length > 0) {
+        scoredMatches.sort((a, b) => b.score - a.score);
+        match = scoredMatches[0].item;
+      } else {
+        match = KNOWLEDGE_BASE.find((item) =>
+          lower.includes(item.name.toLowerCase()) ||
+          lower.includes(item.brand.toLowerCase())
+        );
+      }
     }
 
     if (!match) {
       if (cleanPrompt) {
-        // Synthesize dynamic metadata from prompt
-        const words = cleanPrompt.split(' ');
+        // Synthesize dynamic metadata & SKU from prompt
+        const words = cleanPrompt.split(' ').filter(Boolean);
         const brand = words.length > 1 ? words[0].charAt(0).toUpperCase() + words[0].slice(1) : 'Brand';
         const title = cleanPrompt.charAt(0).toUpperCase() + cleanPrompt.slice(1);
+        const brandCode = brand.replace(/[^a-zA-Z0-9]/g, '').slice(0, 3).toUpperCase() || 'GEN';
+        const nameCode = words.slice(1, 3).map((w) => w.replace(/[^a-zA-Z0-9]/g, '').slice(0, 3).toUpperCase()).filter(Boolean).join('-') || 'ITEM';
+        const rand = crypto.randomBytes(2).toString('hex').toUpperCase();
+        const genSku = `SKU-${brandCode}-${nameCode}-${rand}`;
+
         match = {
+          sku: genSku,
           name: title.length > 10 ? title : `${title} (Commercial Edition)`,
           brand: brand,
           category: 'Electronics',
@@ -718,6 +767,7 @@ router.post('/products/ai-autofill', async (req, res, next) => {
       success: true,
       data: {
         ...match,
+        sku: match.sku || `SKU-${(match.brand || 'GEN').slice(0, 3).toUpperCase()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`,
         keywords: Array.isArray(match.keywords) ? match.keywords.join(', ') : match.keywords,
       },
     });
@@ -759,12 +809,28 @@ router.post('/products', async (req, res, next) => {
 
     const genSku = (sku && sku.trim()) || `SKU-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
 
+    let deducedProductType = req.body.product_type || req.body.productType || null;
+    if (!deducedProductType) {
+      const n = (name || '').toLowerCase();
+      if (n.includes('power bank') || n.includes('powercore') || n.includes('powerbank') || n.includes('portable charger')) deducedProductType = 'power_bank';
+      else if (n.includes('laptop') || n.includes('macbook') || n.includes('vivobook') || n.includes('notebook')) deducedProductType = 'laptop';
+      else if (n.includes('iphone') || n.includes('galaxy') || n.includes('pixel') || n.includes('smartphone') || (n.includes('phone') && !n.includes('headphone') && !n.includes('earphone'))) deducedProductType = 'smartphone';
+      else if (n.includes('headphone') || n.includes('earphone') || n.includes('earbud') || n.includes('wh-1000xm5') || n.includes('quietcomfort') || n.includes('accentum')) deducedProductType = 'headphones';
+      else if (n.includes('monitor') || n.includes('display') || n.includes('ultrasharp')) deducedProductType = 'monitor';
+      else if (n.includes('chair') || n.includes('aeron')) deducedProductType = 'chair';
+      else if (n.includes('desk')) deducedProductType = 'desk';
+      else if (n.includes('mouse') || n.includes('mx master')) deducedProductType = 'mouse';
+      else if (n.includes('keyboard') || n.includes('keychron')) deducedProductType = 'keyboard';
+      else if (n.includes('dock') || n.includes('caldigit')) deducedProductType = 'dock';
+      else if (n.includes('charger') || n.includes('adapter')) deducedProductType = 'charger';
+    }
+
     const insProd = await query(`
       INSERT INTO products (
-        merchant_id, sku, name, description, brand, category, price, currency, inventory, in_stock, rating, specifications, status, catalog_version
+        merchant_id, sku, name, description, brand, category, product_type, commerce_eligible, price, currency, inventory, in_stock, rating, specifications, status, catalog_version
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, 'INR', $8, $9, 4.8, $10, 'ACTIVE', 1)
-      RETURNING id, sku, name, price, inventory
+      VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8, 'INR', $9, $10, 4.8, $11, 'ACTIVE', 1)
+      RETURNING id, sku, name, price, inventory, product_type
     `, [
       merchantId,
       genSku,
@@ -772,6 +838,7 @@ router.post('/products', async (req, res, next) => {
       description || aiSummary || name,
       brand || 'Brand',
       category || 'Electronics',
+      deducedProductType,
       parseFloat(price),
       parseInt(inventory) || 25,
       (parseInt(inventory) || 25) > 0,

@@ -270,7 +270,14 @@ export default function MerchantProducts() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-          <Button variant="secondary" onClick={() => setShowAddModal(true)} icon={<Icons.Sparkles size={15} />}>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setShowAddModal(true);
+              if (!aiPrompt) setAiPrompt('Apple MacBook Air M4 16GB 512GB Midnight');
+            }}
+            icon={<Icons.Sparkles size={15} />}
+          >
             AI Auto-Fill SKU
           </Button>
           <Button variant="primary" onClick={() => setShowAddModal(true)} icon={<Icons.Plus size={15} />}>
@@ -874,16 +881,48 @@ export default function MerchantProducts() {
             </div>
 
             <form onSubmit={handleCreateProduct} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <div>
-                <label className="text-caption" style={{ fontWeight: 600, display: 'block', marginBottom: 4 }}>Product Name</label>
-                <input
-                  type="text"
-                  className="input-field"
-                  value={newProduct.name}
-                  onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })}
-                  placeholder="e.g. Ambrane 20000mAh Power Bank"
-                  required
-                />
+              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.8fr', gap: '1rem', alignItems: 'flex-start' }}>
+                <div>
+                  <label className="text-caption" style={{ fontWeight: 600, display: 'block', marginBottom: 4 }}>
+                    SKU / Catalog Identifier
+                  </label>
+                  <div style={{ display: 'flex', gap: '0.4rem' }}>
+                    <input
+                      type="text"
+                      className="input-field"
+                      value={newProduct.sku}
+                      onChange={(e) => setNewProduct({ ...newProduct, sku: e.target.value })}
+                      placeholder="e.g. SKU-APL-MBA-M4-512"
+                      style={{ flex: 1, fontFamily: 'monospace', fontWeight: 600 }}
+                      required
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        const brandCode = (newProduct.brand || 'GEN').replace(/[^a-zA-Z0-9]/g, '').slice(0, 3).toUpperCase() || 'GEN';
+                        const nameCode = (newProduct.name || 'ITEM').split(/\s+/).slice(0, 2).map((w) => w.replace(/[^a-zA-Z0-9]/g, '').slice(0, 3).toUpperCase()).filter(Boolean).join('-') || 'ITEM';
+                        const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
+                        setNewProduct({ ...newProduct, sku: `SKU-${brandCode}-${nameCode}-${rand}` });
+                      }}
+                    >
+                      Gen
+                    </Button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-caption" style={{ fontWeight: 600, display: 'block', marginBottom: 4 }}>Product Name</label>
+                  <input
+                    type="text"
+                    className="input-field"
+                    value={newProduct.name}
+                    onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })}
+                    placeholder="e.g. Apple MacBook Air M4 (16GB, 512GB)"
+                    required
+                  />
+                </div>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>

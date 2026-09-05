@@ -41,7 +41,7 @@ const PRODUCT_TYPE_TAXONOMY = {
     category: 'Furniture',
   },
   smartphone: {
-    keywords: ['phone', 'smartphone', 'iphone', 'galaxy', 'pixel', 'android'],
+    keywords: ['smartphone', 'smart phone', 'iphone', 'galaxy', 'pixel', 'android phone', 'mobile phone', 'handset', 'phone', 'mobile'],
     category: 'Electronics',
   },
   dock: {
@@ -77,13 +77,14 @@ export function parseBuyerIntent(queryText) {
   const text = queryText.trim();
   const lower = text.toLowerCase();
 
-  // 1. Identify Target Product Type & Category
+  // 1. Identify Target Product Type & Category (word boundary check)
   let detectedType = null;
   let detectedCategory = null;
 
   for (const [typeKey, typeDef] of Object.entries(PRODUCT_TYPE_TAXONOMY)) {
     for (const kw of typeDef.keywords) {
-      if (lower.includes(kw)) {
+      const kwRegex = new RegExp(`(^|[^a-z0-9])${kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9]|$)`, 'i');
+      if (kwRegex.test(lower)) {
         detectedType = typeKey;
         detectedCategory = typeDef.category;
         break;
@@ -238,39 +239,42 @@ export function extractSpecificModelTerms(queryText, detectedBrand = null) {
   text = text.replace(/fast[\s-]charg(?:e|ing)?/gi, ' ');
   text = text.replace(/noise[\s-]cancell?(?:ing|ation)?/gi, ' ');
 
-  // 4. Remove common action, filler words and generic technical descriptors
+  // 4. Remove multi-word generic category phrases FIRST before single-word fillers
+  const genericCategoryPhrases = [
+    'power bank', 'powerbank', 'portable charger', 'battery pack', 'external battery',
+    'wall charger', 'fast charger', 'power adapter', 'charging adapter',
+    'desk chair', 'office chair', 'standing desk', 'height adjustable desk',
+    'docking station', 'usb-c hub', 'thunderbolt dock',
+    'noise cancelling', 'noise cancellation', 'smart phone', 'mobile phone'
+  ];
+  for (const c of genericCategoryPhrases) {
+    text = text.replace(new RegExp(`\\b${c}\\b`, 'gi'), ' ');
+  }
+
+  // 5. Remove common action, filler words and generic technical descriptors
   const fillers = [
     'buy', 'order', 'purchase', 'get', 'find', 'procure', 'acquire', 'need', 'want',
     'looking', 'search', 'the', 'a', 'an', 'me', 'best', 'top', 'good', 'new', 'latest',
     'with', 'for', 'and', 'or', 'in', 'of', 'to', 'please', 'from', 'any', 'cheap',
     'cheapest', 'affordable', 'our', 'team', 'design', 'software', 'development', 'office',
-    'each', 'per', 'unit', 'item', 'product', 'battery', 'batteries', 'cell', 'cells',
-    'charger', 'chargers', 'charging', 'pack', 'packs', 'backup', 'power',
-    'enterprise', 'workstation', 'corporate', 'business', 'personal', 'home',
+    'each', 'per', 'unit', 'units', 'item', 'items', 'battery', 'batteries', 'cell', 'cells',
+    'charger', 'chargers', 'charging', 'pack', 'packs', 'backup', 'power', 'bank',
+    'headphones', 'headphone', 'earphones', 'earbuds', 'headset',
+    'laptop', 'notebook', 'ultrabook', 'computer',
+    'monitor', 'display', 'screen',
+    'mouse', 'trackpad',
+    'keyboard',
+    'chair', 'chairs', 'seating',
+    'desk', 'table', 'workstation',
+    'phone', 'phones', 'smartphone', 'smartphones', 'mobile', 'handset',
+    'dock', 'hub', 'adapter',
+    'enterprise', 'corporate', 'business', 'personal', 'home',
     'device', 'equipment', 'hardware', 'gadget', 'series', 'edition', 'version',
     'inr', 'rs', 'rupees', 'model', 'specs', 'specifications',
     'high', 'quality', 'sound', 'audio', 'ear', 'head', 'noise', 'cancelling', 'cancellation', 'canceling'
   ];
   for (const f of fillers) {
     text = text.replace(new RegExp(`\\b${f}\\b`, 'gi'), ' ');
-  }
-
-  // 5. Remove generic category words (do NOT remove model identifiers like mx master, aeron, macbook, etc.)
-  const genericCategoryWords = [
-    'power bank', 'powerbank', 'portable charger', 'battery pack', 'external battery',
-    'charger', 'wall charger', 'fast charger', 'power adapter', 'charging adapter', 'adapter',
-    'headphones', 'headphone', 'earphones', 'earbuds', 'headset',
-    'laptop', 'notebook', 'ultrabook', 'computer',
-    'monitor', 'display', 'screen',
-    'mouse', 'trackpad',
-    'keyboard',
-    'chair', 'chairs', 'desk chair', 'office chair', 'seating',
-    'desk', 'standing desk', 'workstation', 'table',
-    'phone', 'smartphone',
-    'dock', 'docking station', 'hub'
-  ];
-  for (const c of genericCategoryWords) {
-    text = text.replace(new RegExp(`\\b${c}\\b`, 'gi'), ' ');
   }
 
   // 6. Remove brand if known

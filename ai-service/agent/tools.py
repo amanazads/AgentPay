@@ -33,6 +33,8 @@ class AgentTools:
         merchant_id = merchant.get("id") if isinstance(merchant, dict) and "id" in merchant else item.get("merchant_id")
         merchant_name = merchant.get("name") if isinstance(merchant, dict) and "name" in merchant else item.get("merchant_name", "Verified Merchant")
 
+        prod_type = item.get("product_type") or item.get("productType") or item.get("product_category") or ""
+
         return {
             "id": prod_id,
             "productId": prod_id,
@@ -42,6 +44,7 @@ class AgentTools:
             "unit_price": float(price or 0),
             "currency": pricing.get("currency") if isinstance(pricing, dict) else item.get("currency", "INR"),
             "category": item.get("category", ""),
+            "product_type": prod_type,
             "brand": item.get("brand", ""),
             "description": item.get("description", ""),
             "in_stock": bool(in_stock),
