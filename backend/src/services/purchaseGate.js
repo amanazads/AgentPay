@@ -1,4 +1,5 @@
 import { query } from '../config/database.js';
+import { scanMerchantContent } from './promptSecurityGuard.js';
 
 export class PurchaseValidationError extends Error {
   constructor(code, message, details = {}) {
@@ -51,57 +52,45 @@ export async function validatePurchaseCandidate(candidate, intent, { userSpendin
   }
 
   // 3b. Catalog Active Status Check
-  if (dbProd.status === 'ARCHIVED' || dbProd.status === 'PAUSED') {
+  //
+  // Allowlist, not denylist. This previously named only ARCHIVED and PAUSED,
+  // so INACTIVE, DRAFT — and any status added later — were purchasable by
+  // default. Only ACTIVE is transactable.
+  const catalogStatus = String(dbProd.status || '').toUpperCase();
+  if (catalogStatus !== 'ACTIVE') {
     throw new PurchaseValidationError(
       'PRODUCT_INACTIVE',
-      `Product '${dbProd.name}' is currently ${dbProd.status.toLowerCase()} and cannot be purchased.`
+      `Product '${dbProd.name}' has catalog status '${catalogStatus || 'UNKNOWN'}' and cannot be purchased.`
     );
   }
 
   // 3c. Content Threat & Prompt Injection Check
-  const textParts = [
-    dbProd.name || '',
-    dbProd.description || '',
-    typeof dbProd.specifications === 'object' ? JSON.stringify(dbProd.specifications) : (dbProd.specifications || ''),
-    dbProd.reviews ? JSON.stringify(dbProd.reviews) : '',
-  ];
-  const textToCheck = textParts.filter(Boolean).join(' ').toLowerCase();
-  const promptInjectionRegexes = [
-    /(?:ignore|disregard|forget|override|cancel|bypass)\s+(?:all\s+)?(?:(?:previous|prior|existing|above|system|developer|policy|spending|buyer'?s?|user'?s?)\s+)?(?:the\s+)?(?:rules|instructions|prompts|commands|constraints|limits|policies|policy|budget|guidelines)/i,
-    /(?:new\s+instructions?|system\s+override|priority\s+override|jailbreak|developer\s+mode|god\s+mode)/i,
-    /\[(?:SYSTEM|DEVELOPER|ADMIN|ROOT|ASSISTANT|INSTRUCTION)\]/i,
-    /<\|im_start\|>(?:system|developer|admin)?/i,
-    /<<SYS>>|<SYS>|<\/SYS>|<<\/SYS>>/i,
-    /-{2,}\s*BEGIN\s+(?:SYSTEM|ADMIN|DEVELOPER)\s+(?:MESSAGE|INSTRUCTION)\s*-{2,}/i,
-    /###\s*(?:System|Developer|Admin|Instruction):/i,
-    /(?:system\s*:\s*you\s+are|developer\s*:\s*instruction|admin\s*:\s*execute)/i,
-    /(?:admin\s+(?:command|mode|privilege|override)|sudo\s+(?:approve|authorize|execute|buy|grant)|grant\s+(?:admin|root|permission|authorization)|root\s+(?:access|privilege))/i,
-    /(?:set_approval\s*=\s*(?:auto|true|allow|bypass)|auto_approve\s*=\s*true|force_approve\s*=\s*true)/i,
-    /(?:override|bypass|ignore)\s+(?:policy|policies|rules?)\s+(?:and\s+)?(?:approve|allow|authorize|grant)/i,
-    /(?:approve|authorize|allow)\s+(?:this\s+)?(?:transaction|order|purchase|intent)\s*(?:automatically|without\s+checks?|now)?/i,
-    /priority\s+executive\s+(?:order|approval|override)/i,
-    /transfer\s+funds/i,
-    /bypass\s+(?:spending|budget|purchasing)\s*(?:limits?|polic(?:y|ies)|rules?)?/i,
-    /override\s+(?:spending|budget|limits?)/i,
-    /(?:set\s+limit\s*(?:to|=)\s*(?:unlimited|\d{7,})|no\s+spending\s+limit)/i,
-    /max_budget\s*=\s*(?:unlimited|[\d,]{7,})/i,
-    /(?:ignore|disregard|override)\s+(?:the\s+)?(?:buyer'?s?|user'?s?)?\s*budget/i,
-    /(?:set|increase|override|change)\s+quantity\s*(?:to|=)\s*\d+/i,
-    /(?:buy|order|purchase|get)\s+\d{2,}\s+(?:units|items|pcs|pieces|laptops|phones|chairs)/i,
-    /(?:use|set|charge|pay|enter)\s+(?:₹|rs\.?|inr)?\s*\d+(?:\.\d+)?\s+(?:instead|as\s+price|rather\s+than)\b/i,
-    /(?:use|pay|charge|set)\s+.*?instead\s+of\s+(?:the\s+)?(?:real|actual|catalog|official|original)\s+price/i,
-    /(?:fake|spoofed|manipulated|override|discounted)\s+price\s*(?:to|=|\:)?\s*(?:₹|rs\.?|inr)?\s*\d+/i,
-    /price\s*=\s*(?:₹|rs\.?|inr)?\s*0(?:\.00)?\b/i,
-    /(?:reveal|show|display|print|output|leak|disclose|expose|tell\s+me|repeat|what\s+are)\s+(?:the\s+)?(?:system|developer|hidden|internal|initial|agent)?\s*(?:instructions?|prompts?|rules?|guidelines?|config|context|secrets?)/i,
-    /(?:what\s+is\s+your\s+(?:system\s+prompt|prompt|instructions?))/i,
-    /(?:ignore|bypass|override|disregard)\s+(?:all\s+)?(?:inventory|stock|quantity|out\s+of\s+stock)\s*(?:restrictions?|limits?|checks?|rules?)?/i,
-    /(?:force_in_stock|infinite_stock|bypass_inventory)\s*=\s*true/i,
-  ];
+  //
+  // Delegated to the canonical guard rather than a second, drifting copy of the
+  // pattern list that used to live inline here. The shared guard additionally
+  // normalizes Unicode/zero-width/homoglyph obfuscation and decodes base64,
+  // hex and percent-encoded payloads, none of which the inline regexes caught.
+  //
+  // This is defence in depth, not the thing that keeps money safe: even if a
+  // novel payload slips past detection, price, policy, inventory and payment
+  // are all decided from authoritative database columns below and downstream.
+  const contentScan = scanMerchantContent({
+    name: dbProd.name,
+    description: dbProd.description,
+    brand: dbProd.brand,
+    sku: dbProd.sku,
+    specifications: dbProd.specifications,
+    reviews: dbProd.reviews,
+  });
 
-  if (promptInjectionRegexes.some((rx) => rx.test(textToCheck))) {
+  if (!contentScan.clean) {
     throw new PurchaseValidationError(
       'SECURITY_THREAT_DETECTED',
-      'Adversarial prompt injection pattern detected in untrusted product catalog content.'
+      'Adversarial prompt injection pattern detected in untrusted product catalog content.',
+      {
+        fields: contentScan.findings.map((f) => f.field),
+        matchedRules: [...new Set(contentScan.findings.flatMap((f) => f.matchedRules))],
+      }
     );
   }
 

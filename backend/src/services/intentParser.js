@@ -83,7 +83,11 @@ export function parseBuyerIntent(queryText) {
 
   for (const [typeKey, typeDef] of Object.entries(PRODUCT_TYPE_TAXONOMY)) {
     for (const kw of typeDef.keywords) {
-      const kwRegex = new RegExp(`(^|[^a-z0-9])${kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9]|$)`, 'i');
+      // The trailing boundary allows a regular plural suffix. Without it,
+      // "buy 5 chairs" matched no keyword at all (the taxonomy lists "chair"),
+      // so productType came back null and the request could not be isolated to
+      // a category — which is how "5 ergonomic chairs" became NO_MATCH.
+      const kwRegex = new RegExp(`(^|[^a-z0-9])${kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:e?s)?([^a-z0-9]|$)`, 'i');
       if (kwRegex.test(lower)) {
         detectedType = typeKey;
         detectedCategory = typeDef.category;

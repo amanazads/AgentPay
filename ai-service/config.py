@@ -12,4 +12,20 @@ class Settings:
     GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "").strip()
     INTERNAL_TOKEN: str = os.getenv("AI_SERVICE_INTERNAL_TOKEN", "").strip()
 
+    # Deployment environment. Production is strict: a missing internal token is
+    # a startup failure rather than an open door.
+    APP_ENV: str = (os.getenv("APP_ENV") or os.getenv("NODE_ENV") or "development").strip().lower()
+
+    # This service is INTERNAL — it is called by the AgentPay backend, not by
+    # browsers. Origins are therefore an explicit allowlist and empty by
+    # default; wildcard CORS with credentials is never permitted.
+    ALLOWED_ORIGINS: list = [
+        o.strip() for o in (os.getenv("AI_SERVICE_ALLOWED_ORIGINS") or "").split(",") if o.strip()
+    ]
+
+    @property
+    def is_production(self) -> bool:
+        return self.APP_ENV in ("production", "prod")
+
+
 settings = Settings()

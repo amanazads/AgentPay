@@ -167,7 +167,11 @@ Return ONLY a valid JSON object matching this schema:
         elif any(re.search(r'\b' + re.escape(w) + r'\b', msg_lower) for w in ["phone", "smartphone", "iphone", "galaxy", "pixel", "mobile", "handset"]):
             product_type = "smartphone"
             category = "electronics"
-        elif any(w in msg_lower for w in ["laptop", "computer", "macbook", "thinkpad", "zephyrus", "tuf"]):
+        # "computer" is deliberately NOT a laptop keyword: it is too broad and
+        # turned unrelated requests ("find a quantum computer") into a laptop
+        # search, which is exactly the silent category substitution that must
+        # never happen. Unknown categories fall through to no product type.
+        elif any(w in msg_lower for w in ["laptop", "notebook", "macbook", "thinkpad", "zephyrus", "tuf", "ultrabook"]):
             product_type = "laptop"
             category = "electronics"
         elif any(w in msg_lower for w in ["monitor", "display", "screen", "ultrasharp", "ultrafine", "4k"]):
@@ -213,7 +217,12 @@ Return ONLY a valid JSON object matching this schema:
         required_gan = True if ('gan' in msg_lower or 'gallium nitride' in msg_lower) else False
 
         # Model terms extraction
-        clean_text = re.sub(r'(?:under|below|less than|budget|max|up to|for|worth|price of|around|within)?\s*(?:₹|rs\.?|inr|rupees)?\s*[\d,]+(?:k)?', ' ', msg_lower)
+        # Strip price clauses only when they are actually anchored to a price
+        # keyword or a currency symbol. Every part of this pattern used to be
+        # optional, so it matched any bare digit run and shredded model numbers:
+        # "WH-1000XM5" became "wh- xm", and the model constraint was lost.
+        clean_text = re.sub(r'(?:under|below|less than|budget|max|up to|worth|price of|around|within)\s*(?:₹|rs\.?|inr|rupees)?\s*[\d,]+(?:k)?\b', ' ', msg_lower)
+        clean_text = re.sub(r'(?:₹|rs\.?|inr|rupees)\s*[\d,]+(?:k)?\b', ' ', clean_text)
         clean_text = re.sub(r'\b\d+\s*(?:units?|items?|pieces?|pcs|each)\b', ' ', clean_text)
         clean_text = re.sub(r'\d[\d,]*\s*(?:mah|milliamp)\b', ' ', clean_text)
         clean_text = re.sub(r'\d+(?:\.\d+)?\s*w(?:atts?)?\b', ' ', clean_text)
@@ -270,6 +279,151 @@ Return ONLY a valid JSON object matching this schema:
                 ] if c
             ],
         }
+
+    def build_search_terms(self, intent: Dict[str, Any]) -> Optional[str]:
+        """
+        Builds the free-text search term sent to the authoritative catalog.
+
+        Prefers the most specific signal available, in order:
+          explicit model terms  ->  brand + product type  ->  product type
+        Falls back to None (structured filters only) rather than dumping the
+        whole raw sentence at the catalog, which matches nothing useful.
+        """
+        hard = intent.get("hardConstraints") or {}
+
+        model_terms = intent.get("required_model_terms") or hard.get("requiredModelTerms")
+        if model_terms:
+            if isinstance(model_terms, (list, tuple)):
+                joined = " ".join(str(t) for t in model_terms if t)
+            else:
+                joined = str(model_terms)
+            if joined.strip():
+                return joined.strip()
+
+        brand = intent.get("brand") or hard.get("requiredBrand")
+        product_type = intent.get("product_type") or intent.get("productType")
+
+        if brand and product_type:
+            return f"{brand} {str(product_type).replace('_', ' ')}".strip()
+        if brand:
+            return str(brand).strip()
+        if product_type:
+            return str(product_type).replace("_", " ").strip()
+
+        return None
+
+    def rank_candidates(self, candidates: List[Dict[str, Any]], intent: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Deterministically ranks candidates that have ALREADY passed every hard
+        constraint. Hard constraints decide eligibility; this decides order.
+
+        Priority, highest first (per the AgentPay selection contract):
+            1. exact model match
+            2. exact brand match
+            3. specification match depth
+            4. merchant trust
+            5. delivery
+            6. user preference
+            7. price          <- only here, as a tie-breaker
+            8. promotion
+
+        Price is deliberately near the bottom. Sorting by price and taking the
+        first result is how "buy a phone under 80k" ends up returning the
+        cheapest accessory that happened to survive filtering.
+        """
+        if not candidates:
+            return []
+
+        hard = intent.get("hardConstraints") or {}
+        model_terms = intent.get("required_model_terms") or hard.get("requiredModelTerms") or []
+        if isinstance(model_terms, str):
+            model_terms = [model_terms]
+        model_terms = [str(t).lower() for t in model_terms if t]
+
+        wanted_brand = str(intent.get("brand") or hard.get("requiredBrand") or "").lower().strip()
+        wanted_type = str(intent.get("product_type") or intent.get("productType") or "").lower().strip()
+        prefers_fast = bool(intent.get("prefers_fast_delivery") or intent.get("fastestDelivery"))
+
+        # Specification keys the buyer explicitly asked for.
+        requested_specs = [
+            k for k, v in hard.items()
+            if v not in (None, False, "", [], {}) and k != "requiredModelTerms"
+        ]
+
+        def score(product: Dict[str, Any]):
+            name = str(product.get("name") or "").lower()
+            brand = str(product.get("brand") or "").lower()
+            ptype = str(product.get("product_type") or "").lower()
+            description = str(product.get("description") or "").lower()
+            specs = product.get("specifications") or {}
+            searchable = f"{name} {brand} {description}"
+
+            # 1. Exact model match — every requested model term present in the
+            #    title is the strongest possible signal.
+            if model_terms:
+                in_title = sum(1 for t in model_terms if t in name)
+                model_score = 2 if in_title == len(model_terms) else (1 if in_title > 0 else 0)
+            else:
+                model_score = 0
+
+            # 2. Exact brand match.
+            brand_score = 1 if wanted_brand and brand == wanted_brand else 0
+
+            # 3. Specification match depth: how many requested spec keys this
+            #    product actually documents.
+            spec_keys = " ".join(str(k).lower() for k in specs.keys()) if isinstance(specs, dict) else ""
+            spec_score = sum(1 for k in requested_specs if str(k).lower().replace("required", "") in spec_keys)
+
+            # 3b. Product type agreement (already enforced, kept as a tie-break
+            #     for products whose type is inferred rather than declared).
+            type_score = 1 if wanted_type and (wanted_type in ptype or wanted_type in searchable) else 0
+
+            # 4. Merchant trust.
+            trust_score = 0
+            if product.get("merchant_verified") or (product.get("merchant") or {}).get("isVerified"):
+                trust_score += 2
+            rating = product.get("merchant_rating") or (product.get("merchant") or {}).get("rating")
+            try:
+                trust_score += float(rating) if rating is not None else 0.0
+            except (TypeError, ValueError):
+                pass
+
+            # 5. Delivery — only when the buyer asked for speed.
+            delivery_days = product.get("delivery_days")
+            try:
+                delivery_days = float(delivery_days) if delivery_days is not None else 3.0
+            except (TypeError, ValueError):
+                delivery_days = 3.0
+            delivery_score = (-delivery_days) if prefers_fast else 0.0
+
+            # 6. Stock depth as a mild availability preference.
+            try:
+                stock_score = min(float(product.get("inventory") or 0), 50.0) / 50.0
+            except (TypeError, ValueError):
+                stock_score = 0.0
+
+            # 7. Price — ascending, so negated for a descending sort.
+            try:
+                price = float(product.get("price") or 0)
+            except (TypeError, ValueError):
+                price = 0.0
+
+            # 8. Promotion, last.
+            promoted = 1 if (product.get("ai_metadata") or {}).get("isPromoted") else 0
+
+            return (
+                model_score,
+                brand_score,
+                spec_score,
+                type_score,
+                trust_score,
+                delivery_score,
+                stock_score,
+                -price,
+                promoted,
+            )
+
+        return sorted(candidates, key=score, reverse=True)
 
     def evaluate_candidate_eligibility(self, product: Dict[str, Any], intent: Dict[str, Any]) -> tuple[bool, List[str]]:
         """
@@ -431,8 +585,61 @@ Return ONLY a valid JSON object matching this schema:
         quantity = intent_data.get("quantity", 1)
         max_budget = intent_data.get("max_budget")
         
-        # 3. Discover matching products across authoritative catalog
-        all_products = await self.tools.search_products(limit=50)
+        # 3. Discover matching products across the authoritative catalog.
+        #
+        # This used to be `search_products(limit=50)` — a generic first page,
+        # with no query parameters at all. Arbitrary product searches failed
+        # because the requested item was usually not in that first page. The
+        # parsed intent is now actually passed to the catalog, and the tool
+        # pages until the eligible result set is exhausted.
+        search_terms = self.build_search_terms(intent_data)
+        try:
+            all_products = await self.tools.search_products(
+                query=search_terms,
+                category=intent_data.get("category"),
+                product_type=intent_data.get("product_type"),
+                brand=intent_data.get("brand") or (intent_data.get("hardConstraints") or {}).get("requiredBrand"),
+                max_price=intent_data.get("max_budget"),
+                min_price=intent_data.get("min_budget"),
+            )
+
+            # A targeted search can be too narrow when the merchant's wording
+            # differs from the buyer's. Widen ONCE, on the structured filters
+            # only, never by relaxing a hard constraint — the deterministic
+            # filter below still enforces every constraint on whatever comes
+            # back, so widening changes recall, never eligibility.
+            if not all_products and search_terms:
+                all_products = await self.tools.search_products(
+                    category=intent_data.get("category"),
+                    product_type=intent_data.get("product_type"),
+                    max_price=intent_data.get("max_budget"),
+                )
+        except AgentTools.DiscoveryUnavailable as e:
+            # Fail loudly. An empty list here would be indistinguishable from a
+            # genuine NO_MATCH, letting a catalog outage look like "we searched
+            # and found nothing".
+            print(f"[BuyerAgent] Discovery unavailable: {e}")
+            return ChatResponse(
+                status="DISCOVERY_UNAVAILABLE",
+                agent_name="Procurement Agent",
+                reply=(
+                    "I could not reach the authoritative product catalog, so I have not searched.\n\n"
+                    "This is a service availability problem, not a result: there may well be products "
+                    "matching your request. Nothing was purchased and no funds were moved. "
+                    "Please try again shortly."
+                ),
+                intent_parsed=intent_data,
+                recommendation=None,
+                proposed_action=None,
+                authorization_status=AuthorizationStatus(
+                    state="BLOCKED",
+                    explanation="Authoritative catalog unavailable. Discovery was not performed.",
+                    policy_summary="No financial transaction authorized.",
+                ),
+                tools_called=["detect_injection_threat", "search_authoritative_catalog"],
+                purchase_intent=None,
+                evaluation=None,
+            )
 
         # 4. Strict Hard Constraint Filtering (NO Fallbacks Allowed)
         eligible_candidates = []
@@ -441,8 +648,12 @@ Return ONLY a valid JSON object matching this schema:
             if is_valid:
                 eligible_candidates.append(p)
 
-        # Sort by price ascending
-        eligible_candidates.sort(key=lambda x: float(x.get("price", 0)))
+        # 4b. Deterministic ranking.
+        #
+        # Previously: sort by price ascending, take [0] — i.e. always the
+        # cheapest eligible product, which is explicitly the wrong selection
+        # rule. Relevance now dominates and price is only a late tie-breaker.
+        eligible_candidates = self.rank_candidates(eligible_candidates, intent_data)
         matching_product = eligible_candidates[0] if eligible_candidates else None
 
         # 5. Resolve effective agent_id

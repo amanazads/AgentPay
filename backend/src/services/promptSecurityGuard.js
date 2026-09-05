@@ -158,7 +158,7 @@ const SPACED_RULES = [
   // 1. Instruction overrides and jailbreaks
   { id: 'INSTRUCTION_OVERRIDE', re: /(?:ignore|disregard|forget|override|cancel|bypass|skip)\s+(?:all\s+|any\s+)?(?:the\s+)?(?:(?:previous|prior|preceding|earlier|existing|above|system|developer|policy|spending|safety|security|buyer'?s?|user'?s?)\s+)?(?:rules?|instructions?|prompts?|commands?|constraints?|limits?|polic(?:y|ies)|guidelines?|checks?|restrictions?)/ },
   { id: 'JAILBREAK_MODE', re: /(?:new\s+instructions?|system\s+override|priority\s+override|jailbreak|developer\s+mode|god\s+mode|dan\s+mode|do\s+anything\s+now)/ },
-  { id: 'ROLE_ESCALATION', re: /(?:you\s+are\s+now|act\s+as|pretend\s+to\s+be|from\s+now\s+on\s+you)\s+(?:an?\s+)?(?:admin|administrator|root|developer|system|unrestricted)/ },
+  { id: 'ROLE_ESCALATION', re: /(?:you\s+are\s+now|act\s+as|pretend\s+to\s+be|from\s+now\s+on)\b[^.\n]{0,20}?\b(?:admin|administrator|root|developer\s+mode|unrestricted|superuser)\b/ },
 
   // 2. Fake system messages and delimiter injection
   { id: 'FAKE_SYSTEM_TAG', re: /\[(?:\s*)(?:system|developer|admin|root|assistant|instruction|internal)(?:\s*)\]/ },
@@ -193,7 +193,7 @@ const SPACED_RULES = [
   // 6. System prompt exfiltration
   { id: 'PROMPT_EXFILTRATION', re: /(?:reveal|show|display|print|output|leak|disclose|expose|repeat|recite|dump|tell\s+me)\s+(?:me\s+)?(?:the\s+|your\s+|all\s+)?(?:system|developer|hidden|internal|initial|original|secret|agent)\s*(?:instructions?|prompts?|rules?|guidelines?|config(?:uration)?|context|messages?)/ },
   { id: 'PROMPT_QUESTION', re: /what\s+(?:is|are|was|were)\s+your\s+(?:system\s+)?(?:prompt|instructions?|rules?|guidelines?)/ },
-  { id: 'CREDENTIAL_EXFILTRATION', re: /(?:reveal|show|print|leak|give\s+me|what\s+is)\s+(?:the\s+|your\s+)?(?:api[_\s-]?key|secret|token|password|credential|signing[_\s-]?key)/ },
+  { id: 'CREDENTIAL_EXFILTRATION', re: /(?:reveal|show|print|display|dump|leak|expose|give|tell|what\s+is)\b[^.\n]{0,24}?\b(?:api[_\s-]?keys?|secrets?|auth[_\s-]?tokens?|passwords?|credentials?|signing[_\s-]?keys?|private[_\s-]?keys?)\b/ },
 
   // 7. Inventory and eligibility bypass
   { id: 'INVENTORY_BYPASS', re: /(?:ignore|bypass|override|disregard|skip|disable)\s+(?:all\s+)?(?:the\s+)?(?:inventory|stock|availability)\s*(?:restrictions?|limits?|checks?|rules?)?/ },

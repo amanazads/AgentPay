@@ -22,6 +22,11 @@ import { generateQuote, verifyQuoteForCheckout, QuoteVerificationError, QuoteErr
 import { reserveInventory } from '../services/inventoryService.js';
 import { logger } from '../utils/logger.js';
 import {
+  AI_CATALOG_PREDICATE,
+  AI_CATALOG_SELECT,
+  normalizeCatalogProduct,
+} from '../services/catalogEligibility.js';
+import {
   detectInjectionThreat,
   scanMerchantContent,
   buildBlockedResponse,
@@ -71,26 +76,47 @@ async function resolveAuthorizedAgent(req, requestedAgentId) {
  * GET /api/ai/catalog
  * Track 01 Requirement #1: Normalized AI-Readable Merchant Catalog Feed
  * Schema: agentpay.catalog.v1
+ *
+ * Eligibility is decided by the single canonical predicate in
+ * services/catalogEligibility.js. Nothing outside that module gets to define
+ * what an AI buyer may see.
  */
 router.get('/catalog', async (req, res, next) => {
   try {
-    const { category, minPrice, maxPrice, search, merchantId, inStockOnly = 'true', limit = 50, offset = 0 } = req.query;
+    const {
+      category, minPrice, maxPrice, search, merchantId,
+      productType, brand,
+      limit = 50, offset = 0,
+    } = req.query;
 
-    const conditions = ["(p.is_test_lab = false OR p.is_test_lab IS NULL) AND (p.status = 'ACTIVE' OR p.status IS NULL)"];
+    const conditions = [AI_CATALOG_PREDICATE];
     const params = [];
-
-    if (inStockOnly === 'true') {
-      conditions.push('p.in_stock = true');
-    }
 
     if (search) {
       params.push(`%${search}%`);
-      conditions.push(`(p.name ILIKE $${params.length} OR p.description ILIKE $${params.length} OR p.brand ILIKE $${params.length} OR p.category ILIKE $${params.length})`);
+      conditions.push(`(
+        p.name ILIKE $${params.length}
+        OR p.description ILIKE $${params.length}
+        OR p.brand ILIKE $${params.length}
+        OR p.category ILIKE $${params.length}
+        OR p.product_type ILIKE $${params.length}
+        OR p.sku ILIKE $${params.length}
+      )`);
     }
 
     if (category) {
       params.push(category);
       conditions.push(`p.category ILIKE $${params.length}`);
+    }
+
+    if (productType) {
+      params.push(productType);
+      conditions.push(`p.product_type ILIKE $${params.length}`);
+    }
+
+    if (brand) {
+      params.push(brand);
+      conditions.push(`p.brand ILIKE $${params.length}`);
     }
 
     if (minPrice) {
@@ -108,102 +134,39 @@ router.get('/catalog', async (req, res, next) => {
       conditions.push(`p.merchant_id = $${params.length}`);
     }
 
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const whereClause = `WHERE ${conditions.join(' AND ')}`;
+
+    // Bounded page size, and a real total so an AI buyer can page rather than
+    // silently accepting a truncated first page as "the catalog".
+    const pageLimit = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 200);
+    const pageOffset = Math.max(parseInt(offset, 10) || 0, 0);
+
+    const countRes = await query(
+      `SELECT COUNT(*)::int AS total FROM products p JOIN merchants m ON p.merchant_id = m.id ${whereClause}`,
+      params
+    );
+    const totalCount = countRes.rows[0]?.total ?? 0;
 
     const sql = `
-      SELECT p.*,
-             m.name as merchant_name,
-             m.is_verified as merchant_verified,
-             m.rating as merchant_rating,
-             m.risk_level as merchant_risk_level,
-             m.tier as merchant_tier,
-             pam.ai_summary,
-             pam.target_audience,
-             pam.use_cases,
-             pam.keywords as ai_keywords,
-             pam.specifications_normalized,
-             pam.is_promoted
-      FROM products p
-      JOIN merchants m ON p.merchant_id = m.id
-      LEFT JOIN product_ai_metadata pam ON pam.product_id = p.id
+      ${AI_CATALOG_SELECT}
       ${whereClause}
       ORDER BY pam.is_promoted DESC NULLS LAST, p.price ASC
       LIMIT $${params.length + 1} OFFSET $${params.length + 2}
     `;
 
-    params.push(parseInt(limit), parseInt(offset));
-    const result = await query(sql, params);
-
-    // Formatted normalized machine-readable items (Private merchant margins strictly stripped)
-    const normalizedItems = result.rows.map((row) => ({
-      productId: row.id,
-      sku: row.sku || `SKU-${row.id.substring(0, 8).toUpperCase()}`,
-      title: row.name,
-      description: row.description,
-      category: row.category,
-      productType: row.product_type || 'other',
-      brand: row.brand || 'Verified Hardware',
-      pricing: {
-        amount: parseFloat(row.price),
-        currency: row.currency || 'INR',
-        formatted: `₹${parseFloat(row.price).toLocaleString('en-IN')}`,
-        priceLockGuaranteed: true,
-        priceLockDurationMinutes: 15,
-      },
-      inventory: {
-        quantity: row.inventory ?? 25,
-        inStock: row.in_stock,
-        status: row.in_stock ? 'IN_STOCK' : 'OUT_OF_STOCK',
-        minOrderQuantity: 1,
-        maxOrderQuantity: Math.min(row.inventory ?? 10, 5),
-      },
-      specificationsNormalized: row.specifications_normalized || row.specifications || {},
-      aiMetadata: {
-        summary: row.ai_summary || `${row.name} with verified structured specifications.`,
-        targetAudience: row.target_audience || 'Professionals, developers, and enterprise consumers',
-        useCases: row.use_cases || ['Daily productivity', 'Enterprise use'],
-        keywords: row.ai_keywords || [row.category?.toLowerCase(), row.brand?.toLowerCase()],
-        isPromoted: Boolean(row.is_promoted),
-      },
-      delivery: {
-        standard: {
-          name: 'Standard Surface Delivery',
-          fee: 0,
-          currency: 'INR',
-          estimatedDays: 2,
-          carrier: 'Simulated Standard Delivery (Demo)',
-        },
-        express: {
-          name: 'Next-Day Express Air',
-          fee: 199,
-          currency: 'INR',
-          estimatedDays: 1,
-          carrier: 'Simulated Express Delivery (Demo)',
-        },
-      },
-      merchant: {
-        id: row.merchant_id,
-        name: row.merchant_name,
-        isVerified: row.merchant_verified,
-        rating: parseFloat(row.merchant_rating) || 4.9,
-        riskLevel: row.merchant_risk_level || 'low',
-        trustScore: row.merchant_verified ? 98 : 60,
-      },
-      protocol: {
-        quoteUrl: `/api/ai/quote`,
-        cartUrl: `/api/ai/cart`,
-        checkoutUrl: `/api/ai/checkout`,
-      },
-    }));
+    const result = await query(sql, [...params, pageLimit, pageOffset]);
+    const items = result.rows.map(normalizeCatalogProduct);
 
     res.json({
       protocol: 'agentic-commerce/v1',
       schema: 'agentpay.catalog.v1',
-      totalCount: normalizedItems.length,
-      limit: parseInt(limit),
-      offset: parseInt(offset),
+      totalCount,
+      returnedCount: items.length,
+      limit: pageLimit,
+      offset: pageOffset,
+      hasMore: pageOffset + items.length < totalCount,
       timestamp: new Date().toISOString(),
-      items: normalizedItems,
+      items,
     });
   } catch (err) {
     next(err);
@@ -213,67 +176,34 @@ router.get('/catalog', async (req, res, next) => {
 /**
  * GET /api/ai/catalog/:productId
  * Track 01 Requirement #1: Normalized single-product machine specification
+ *
+ * Applies EXACTLY the same eligibility boundary as the list endpoint. This
+ * previously had no eligibility filter at all, so a caller who knew (or
+ * guessed) an id could read test-lab, inactive and commerce-ineligible
+ * products straight out of the AI catalog.
+ *
+ * An ineligible product is reported as 404, not 403: the AI catalog does not
+ * confirm the existence of products outside its boundary.
  */
 router.get('/catalog/:productId', async (req, res, next) => {
   try {
     const { productId } = req.params;
-    const result = await query(`
-      SELECT p.*,
-             m.name as merchant_name,
-             m.is_verified as merchant_verified,
-             m.rating as merchant_rating,
-             m.risk_level as merchant_risk_level,
-             pam.ai_summary,
-             pam.target_audience,
-             pam.use_cases,
-             pam.keywords as ai_keywords,
-             pam.specifications_normalized,
-             pam.margin_tier
-      FROM products p
-      JOIN merchants m ON p.merchant_id = m.id
-      LEFT JOIN product_ai_metadata pam ON pam.product_id = p.id
-      WHERE p.id = $1
-    `, [productId]);
+
+    const result = await query(
+      `${AI_CATALOG_SELECT} WHERE p.id = $1 AND ${AI_CATALOG_PREDICATE}`,
+      [productId]
+    );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Product not found' });
+      return res.status(404).json({
+        error: 'Product not found in the AI commerce catalog',
+        code: 'PRODUCT_NOT_ELIGIBLE_OR_NOT_FOUND',
+      });
     }
 
-    const row = result.rows[0];
     res.json({
-      protocol: 'agentic-commerce/v1',
+      ...normalizeCatalogProduct(result.rows[0]),
       schema: 'agentpay.product.v1',
-      productId: row.id,
-      sku: row.sku || `SKU-${row.id.substring(0, 8).toUpperCase()}`,
-      title: row.name,
-      description: row.description,
-      category: row.category,
-      productType: row.product_type || 'other',
-      brand: row.brand,
-      pricing: {
-        amount: parseFloat(row.price),
-        currency: row.currency || 'INR',
-        formatted: `₹${parseFloat(row.price).toLocaleString('en-IN')}`,
-        priceLockGuaranteed: true,
-      },
-      inventory: {
-        quantity: row.inventory ?? 25,
-        inStock: row.in_stock,
-        status: row.in_stock ? 'IN_STOCK' : 'OUT_OF_STOCK',
-      },
-      specificationsNormalized: row.specifications_normalized || row.specifications || {},
-      aiMetadata: {
-        summary: row.ai_summary,
-        targetAudience: row.target_audience,
-        useCases: row.use_cases,
-        keywords: row.ai_keywords,
-      },
-      merchant: {
-        id: row.merchant_id,
-        name: row.merchant_name,
-        isVerified: row.merchant_verified,
-        rating: parseFloat(row.merchant_rating) || 4.9,
-      },
     });
   } catch (err) {
     next(err);
