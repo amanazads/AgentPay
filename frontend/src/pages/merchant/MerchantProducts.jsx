@@ -57,6 +57,23 @@ export default function MerchantProducts() {
 
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
+  // Server errors were previously only console.error'd, so a failed save, status
+  // change or archive looked exactly like a successful one to the merchant.
+  const [errorMessage, setErrorMessage] = useState(null);
+  const [loadError, setLoadError] = useState(null);
+
+  /** Surfaces a server failure to the merchant instead of swallowing it. */
+  const reportFailure = (action, err) => {
+    const detail = err?.message || 'The server did not respond.';
+    console.error(`${action} failed`, err);
+    setMessage(null);
+    setErrorMessage(`${action} failed: ${detail}`);
+  };
+
+  const beginMutation = () => {
+    setErrorMessage(null);
+    setMessage(null);
+  };
 
   useEffect(() => {
     fetchProducts();
@@ -67,14 +84,19 @@ export default function MerchantProducts() {
       const res = await api.getMerchantProducts();
       setProducts(res.products || []);
       setSummary(res.summary || null);
+      setLoadError(null);
     } catch (e) {
       console.error('Failed to load products', e);
+      // Do not leave a stale catalog on screen implying everything is fine.
+      setLoadError(e?.message || 'Unable to load your catalog.');
     } finally {
       setLoading(false);
     }
   };
 
   const handleAiAutofill = async (promptText) => {
+    if (autofilling) return;
+    beginMutation();
     setAutofilling(true);
     try {
       const res = await api.aiAutofillProduct(promptText);
@@ -97,7 +119,7 @@ export default function MerchantProducts() {
         setTimeout(() => setMessage(null), 4000);
       }
     } catch (err) {
-      console.error('AI autofill error', err);
+      reportFailure('AI autofill', err);
     } finally {
       setAutofilling(false);
     }
@@ -105,6 +127,8 @@ export default function MerchantProducts() {
 
   const handleCreateProduct = async (e) => {
     e.preventDefault();
+    if (saving) return; // guard against duplicate submission
+    beginMutation();
     setSaving(true);
     try {
       await api.createMerchantProduct({
@@ -133,7 +157,9 @@ export default function MerchantProducts() {
       setTimeout(() => setMessage(null), 3000);
       fetchProducts();
     } catch (err) {
-      console.error('Create product error', err);
+      // The modal deliberately stays open so the merchant does not lose their
+      // input and can correct and retry.
+      reportFailure('Creating the product', err);
     } finally {
       setSaving(false);
     }
@@ -182,6 +208,8 @@ export default function MerchantProducts() {
   const handleSaveProductEdit = async (e) => {
     e.preventDefault();
     if (!selectedProduct) return;
+    if (saving) return; // guard against duplicate submission
+    beginMutation();
     setSaving(true);
     try {
       await api.updateMerchantProduct(selectedProduct.id, {
@@ -205,7 +233,7 @@ export default function MerchantProducts() {
       setTimeout(() => setMessage(null), 3000);
       fetchProducts();
     } catch (err) {
-      console.error('Failed to update product details', err);
+      reportFailure('Updating the product', err);
     } finally {
       setSaving(false);
     }
@@ -213,25 +241,38 @@ export default function MerchantProducts() {
 
   const handleToggleStatus = async (id, currentStatus) => {
     const targetStatus = currentStatus === 'ACTIVE' ? 'PAUSED' : 'ACTIVE';
+    if (saving) return;
+    beginMutation();
+    setSaving(true);
     try {
       await api.updateProductStatus(id, targetStatus);
       setMessage(`Product status changed to ${targetStatus}.`);
       setTimeout(() => setMessage(null), 3000);
       fetchProducts();
     } catch (err) {
-      console.error('Status change error', err);
+      reportFailure(`Changing status to ${targetStatus}`, err);
+      // Re-read authoritative state: the product may or may not have changed.
+      fetchProducts();
+    } finally {
+      setSaving(false);
     }
   };
 
   const handleDeleteProduct = async (id, name) => {
     if (!window.confirm(`Are you sure you want to archive "${name}" from your AI catalog?`)) return;
+    if (saving) return;
+    beginMutation();
+    setSaving(true);
     try {
       await api.deleteMerchantProduct(id);
       setMessage(`Archived "${name}".`);
       setTimeout(() => setMessage(null), 3000);
       fetchProducts();
     } catch (err) {
-      console.error('Archive product error', err);
+      reportFailure(`Archiving "${name}"`, err);
+      fetchProducts();
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -290,6 +331,33 @@ export default function MerchantProducts() {
         <div style={{ padding: '0.75rem 1rem', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 'var(--radius-md)', color: '#166534', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Icons.Check size={16} />
           {message}
+        </div>
+      )}
+
+      {errorMessage && (
+        <div role="alert" style={{ padding: '0.75rem 1rem', backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: 'var(--radius-md)', color: '#991b1b', fontSize: '0.875rem', display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+          <Icons.ShieldAlert size={16} />
+          <div style={{ flex: 1 }}>
+            {errorMessage}
+            <div style={{ fontSize: '0.75rem', marginTop: 4, color: '#7f1d1d' }}>
+              Your catalog was not changed by this action.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setErrorMessage(null)}
+            style={{ background: 'none', border: 'none', color: '#991b1b', cursor: 'pointer', fontWeight: 700, fontSize: '1rem', lineHeight: 1 }}
+            aria-label="Dismiss error"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
+      {loadError && (
+        <div role="alert" style={{ padding: '0.75rem 1rem', backgroundColor: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 'var(--radius-md)', color: '#92400e', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'space-between' }}>
+          <span>Unable to load your catalog: {loadError}</span>
+          <Button variant="secondary" size="sm" onClick={fetchProducts}>Retry</Button>
         </div>
       )}
 

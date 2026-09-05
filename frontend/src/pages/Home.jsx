@@ -37,6 +37,7 @@ export default function Home() {
   const [selectedOrderDetail, setSelectedOrderDetail] = useState(null);
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [approvalSubmitting, setApprovalSubmitting] = useState(false);
+  const [approvalError, setApprovalError] = useState(null);
   const isSubmittingRef = useRef(false);
 
   // Preferences controls
@@ -83,7 +84,19 @@ export default function Home() {
     }, 400);
 
     try {
-      const chatRes = await api.sendChatMessage({ message: text });
+      // Advanced filters travel as STRUCTURED fields, not smuggled into the
+      // prose. The server applies them as constraints (see
+      // applyStructuredFilters) and remains the authority on what they mean —
+      // the client cannot use them to widen a budget or grant itself anything.
+      const filters = {};
+      if (advBudget !== '' && Number(advBudget) > 0) filters.maxBudget = Number(advBudget);
+      if (advBrand.trim()) filters.brand = advBrand.trim();
+      if (advDelivery) filters.delivery = advDelivery;
+
+      const chatRes = await api.sendChatMessage({
+        message: text,
+        ...(Object.keys(filters).length > 0 ? { filters } : {}),
+      });
       clearInterval(stepInterval);
       setProgressStep(7);
 
@@ -104,40 +117,50 @@ export default function Home() {
   const handleApprovePurchase = async () => {
     if (!currentSession?.purchase_intent?.id) return;
     setApprovalSubmitting(true);
+    setApprovalError(null);
     try {
       const approvalRes = await api.getApprovals('pending');
       const targetApproval = (approvalRes.approvals || []).find(
         (a) => a.purchase_intent_id === currentSession.purchase_intent.id || a.id === currentSession.purchase_intent.id
       );
 
-      if (targetApproval) {
-        await api.decideApproval(targetApproval.id, 'APPROVE', 'Approved from Buyer Home');
-      } else {
-        // Direct execution
-        const orderRes = await api.createPaymentOrder({
-          purchase_intent_id: currentSession.purchase_intent.id,
-          amount: currentSession.recommendation.price,
-          currency: 'INR',
-        });
-        const txId = orderRes.transactionId || orderRes.transaction?.id;
-        const rzpOrderId = orderRes.orderId || orderRes.order?.id;
-
-        await api.confirmTestPayment(txId || rzpOrderId, {
-          transaction_id: txId,
-          razorpay_order_id: rzpOrderId,
-          razorpay_payment_id: `pay_test_${Math.random().toString(36).substring(2, 10)}`,
-          razorpay_signature: 'valid_test_signature',
-        });
+      if (!targetApproval) {
+        // There is no client-side way to complete a purchase. If the server has
+        // no pending approval for this intent, the intent is not in a state we
+        // can authorize, and we say so rather than inventing a payment.
+        throw new Error(
+          'No pending approval was found for this purchase on the server. It may have already been decided, expired, or been withdrawn. Please refresh and try again.'
+        );
       }
+
+      // The backend approval service is authoritative: it revalidates the
+      // product, quote, price, inventory, policy and risk, then creates and
+      // verifies the payment server-side. We never construct an amount or a
+      // payment signature in the browser.
+      const decision = await api.decideApproval(targetApproval.id, 'APPROVE', 'Approved from Buyer Home');
+
+      // Trust only what the server reports. An approval that was recorded but
+      // did not settle must not render as a completed order.
+      const serverStatus = decision?.executionStatus
+        || decision?.result?.executionStatus
+        || (decision?.paymentSettled ? 'COMPLETED' : 'PAYMENT_PENDING');
+      const serverError = decision?.paymentError || decision?.result?.paymentError || null;
 
       setCurrentSession((prev) => ({
         ...prev,
-        status: 'COMPLETED',
+        execution_status: serverStatus,
+        status: serverStatus,
+        payment_error: serverError,
       }));
+
+      if (serverError) setApprovalError(serverError);
+
       await loadData();
     } catch (e) {
+      const message = e?.message || 'Server error';
       console.error('Approval execution failed', e);
-      alert('Approval failed: ' + (e.message || 'Server error'));
+      setApprovalError(message);
+      setCurrentSession((prev) => (prev ? { ...prev, execution_status: 'ERROR', payment_error: message } : prev));
     } finally {
       setApprovalSubmitting(false);
     }
@@ -408,9 +431,26 @@ export default function Home() {
 
           {/* C. Winning Recommendation Card */}
           {currentSession.recommendation ? (() => {
-            const isCompleted = currentSession.execution_status === 'COMPLETED' || currentSession.status === 'COMPLETED' || currentSession.authorization_status?.state === 'ALLOW';
-            const isApprovalRequired = currentSession.execution_status === 'APPROVAL_REQUIRED' || currentSession.status === 'APPROVAL_REQUIRED' || currentSession.authorization_status?.state === 'APPROVAL_REQUIRED';
-            const isBlocked = currentSession.execution_status === 'BLOCKED' || currentSession.status === 'BLOCKED' || currentSession.authorization_status?.state === 'BLOCK';
+            // State is derived from BACKEND TRUTH only.
+            //
+            // Previously `authorization_status.state === 'ALLOW'` counted as
+            // completed. That is a policy decision, not a settlement: a purchase
+            // could be authorized, fail at payment, and still render as
+            // "Purchase completed — order confirmed". A completed purchase now
+            // requires the server to say COMPLETED *and* to have produced an
+            // order. Everything else gets its own honest state.
+            const backendState = currentSession.execution_status || currentSession.status || null;
+
+            const isCompleted = backendState === 'COMPLETED' && Boolean(currentSession.order);
+            const isApprovalRequired = backendState === 'APPROVAL_REQUIRED'
+              || (!backendState && currentSession.authorization_status?.state === 'APPROVAL_REQUIRED');
+            const isBlocked = backendState === 'BLOCKED'
+              || (!backendState && currentSession.authorization_status?.state === 'BLOCK');
+            const isPaymentFailed = backendState === 'PAYMENT_FAILED' || backendState === 'ERROR';
+            const isPaymentPending = backendState === 'PAYMENT_PENDING' || backendState === 'IN_PROGRESS';
+            // Policy authorized the purchase but the server has not reported a
+            // confirmed order yet — do not claim success on its behalf.
+            const isAuthorizedNotSettled = backendState === 'COMPLETED' && !currentSession.order;
 
             return (
               <div>
@@ -425,8 +465,22 @@ export default function Home() {
                   <div className="result-price-box">
                     <span className="result-price">{formatCurrency(currentSession.recommendation.price)}</span>
                     <StatusBadge
-                      status={isCompleted ? 'CONFIRMED' : isApprovalRequired ? 'APPROVAL_REQUIRED' : isBlocked ? 'BLOCKED' : 'ALLOW'}
-                      label={isCompleted ? 'Purchase Confirmed' : isApprovalRequired ? 'Needs Approval' : isBlocked ? 'Blocked' : 'Match Found'}
+                      status={
+                        isCompleted ? 'CONFIRMED'
+                          : isApprovalRequired ? 'APPROVAL_REQUIRED'
+                          : isBlocked ? 'BLOCKED'
+                          : isPaymentFailed ? 'BLOCKED'
+                          : (isPaymentPending || isAuthorizedNotSettled) ? 'APPROVAL_REQUIRED'
+                          : 'ALLOW'
+                      }
+                      label={
+                        isCompleted ? 'Purchase Confirmed'
+                          : isApprovalRequired ? 'Needs Approval'
+                          : isBlocked ? 'Blocked'
+                          : isPaymentFailed ? 'Payment Failed'
+                          : (isPaymentPending || isAuthorizedNotSettled) ? 'Payment Pending'
+                          : 'Match Found'
+                      }
                     />
                   </div>
                 </div>
@@ -448,6 +502,10 @@ export default function Home() {
                     )}
                     {isCompleted ? (
                       <li><Icons.Check size={14} className="icon-green" /> Autonomous payment verified on Razorpay test rails</li>
+                    ) : isPaymentFailed ? (
+                      <li><Icons.ShieldAlert size={14} className="icon-red" /> Payment did not settle: {currentSession.payment_error || 'no funds were moved'}</li>
+                    ) : (isPaymentPending || isAuthorizedNotSettled) ? (
+                      <li><Icons.AlertTriangle size={14} className="icon-amber" /> Policy authorized this purchase; awaiting server confirmation of settlement</li>
                     ) : isApprovalRequired ? (
                       <li><Icons.AlertTriangle size={14} className="icon-amber" /> Amount exceeds autonomous threshold ({formatCurrency(autoLimit)}) — 1-click authorization required</li>
                     ) : isBlocked ? (
@@ -519,11 +577,61 @@ export default function Home() {
                       <span>{currentSession.authorization_status?.explanation || 'Transaction blocked by spending safety policy.'}</span>
                     </div>
                   )}
+
+                  {isPaymentFailed && (
+                    <div className="result-blocked-box">
+                      <Icons.ShieldAlert size={16} />
+                      <span>
+                        Payment did not settle{currentSession.payment_error ? `: ${currentSession.payment_error}` : '.'} No funds were moved and no order was created.
+                      </span>
+                    </div>
+                  )}
+
+                  {(isPaymentPending || isAuthorizedNotSettled) && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0.75rem', backgroundColor: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 6, fontSize: '0.8125rem', color: '#78350f' }}>
+                      <Icons.AlertTriangle size={16} />
+                      <span>
+                        Policy authorized this purchase, but the server has not confirmed settlement yet. This will not be treated as a completed order until it does.
+                      </span>
+                    </div>
+                  )}
+
+                  {approvalError && (
+                    <div className="result-blocked-box" role="alert">
+                      <Icons.ShieldAlert size={16} />
+                      <span>{approvalError}</span>
+                    </div>
+                  )}
                 </div>
               </div>
             );
-          })() : (
-            /* D. No Match Found Guard */
+          })() : (currentSession.status === 'BLOCKED' || currentSession.execution_status === 'BLOCKED') ? (
+            /* D1. Security Block — request rejected before any commerce step */
+            <div style={{ padding: '1.5rem', backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: 'var(--radius-md)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#991b1b', fontWeight: 700, marginBottom: '0.5rem' }}>
+                <Icons.ShieldAlert size={20} color="#dc2626" />
+                <span>Blocked by AgentPay Security</span>
+              </div>
+              <p style={{ color: '#7f1d1d', fontSize: '0.875rem', lineHeight: 1.6, whiteSpace: 'pre-line', marginBottom: '1rem' }}>
+                {currentSession.reply}
+              </p>
+              <div style={{ padding: '0.75rem', backgroundColor: '#ffffff', border: '1px solid #fca5a5', borderRadius: 6, fontSize: '0.8125rem', color: '#7f1d1d' }}>
+                <strong style={{ color: '#991b1b' }}>What was prevented:</strong>
+                <ul style={{ margin: '0.5rem 0 0', paddingLeft: '1.1rem', lineHeight: 1.7 }}>
+                  <li>No purchase intent was created</li>
+                  <li>No price quote was issued</li>
+                  <li>No inventory was reserved</li>
+                  <li>No payment was authorized</li>
+                </ul>
+                {currentSession.security?.matched_rules?.length > 0 && (
+                  <div style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: '#991b1b' }}>
+                    Security rules triggered: {currentSession.security.matched_rules.join(', ')}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            /* D2. No Match Found Guard */
             <div style={{ padding: '1.5rem', backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: 'var(--radius-md)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#991b1b', fontWeight: 700, marginBottom: '0.5rem' }}>
                 <Icons.ShieldAlert size={20} color="#dc2626" />

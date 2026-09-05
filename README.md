@@ -302,10 +302,28 @@ Application URL: **`http://localhost:5173`**
 
 ## 9. Automated Test Battery
 
-AgentPay includes an automated test battery verifying financial safety, concurrency locks, price integrity, payment verification, and prompt defense:
+AgentPay includes an automated test battery verifying financial safety, concurrency locks, price integrity, payment verification, search relevance, and prompt-injection defence.
 
-* **Backend Test Battery**: **26 test suites, 276 automated tests passing** (Jest).
-* **AI Service Suite**: **4 pytest tests passing** (`tests/test_prompt_guard.py`).
+Counts below are what the suites actually contain and what they actually report.
+
+* **Backend (Jest)**: 9 test suites, **189 tests, all passing** (verified on a freshly migrated database).
+  * `promptSecurityGuard.test.js` — prompt-injection matrix (user input + merchant content, encodings, obfuscation)
+  * `securityInvariant.test.js` — proves the backend refuses a compromised AI verdict on every guard independently
+  * `searchRelevance.test.js` — search relevance matrix, NO_MATCH behaviour, untrusted-LLM-intent merging
+  * `merchantProductValidator.test.js` — merchant input validation
+  * `candidateFilter.test.js`, `policyEngine.test.js`, `pricingService.test.js`, `riskEngine.test.js`, `e2e.test.js`
+* **AI Service (pytest)**: 21 tests passing (`test_prompt_guard.py`, `test_buyer_agent.py`, `test_search_and_ranking.py`).
+
+**Prerequisites.** The backend suite needs:
+
+* **PostgreSQL** matching `DATABASE_URL`, with migrations applied (`npm run migrate`).
+* **Redis** at `REDIS_URL`. Without it the idempotency locks fall back to database polling,
+  and the `e2e.test.js` approval-flow case can exceed the 30s Jest timeout.
+* Outbound access to `api.razorpay.com` is *not* required — the test provider falls back to a
+  clearly-labelled simulated order — but where it is blocked the Razorpay SDK spends ~21s per
+  call timing out, which also pushes that one case towards the timeout.
+
+Both are provided by `docker compose up -d`.
 
 ```bash
 # Run backend test battery

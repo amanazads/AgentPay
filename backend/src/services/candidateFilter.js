@@ -1,5 +1,7 @@
 import { query } from '../config/database.js';
 import { getSpendingSummary } from './spendingService.js';
+import { AI_CATALOG_PREDICATE } from './catalogEligibility.js';
+import { scanMerchantContent } from './promptSecurityGuard.js';
 
 /**
  * Deterministic Candidate Filter & Product Eligibility Engine
@@ -15,6 +17,10 @@ import { getSpendingSummary } from './spendingService.js';
 
 export async function findEligibleProducts(intent, { merchantId = null, userId = null, buyerPolicy = null, limit = 10 } = {}) {
   const { productType, category, maxPrice, minPrice, hardConstraints = {}, softPreferences = {}, rawQuery = '' } = intent;
+
+  // Quantity participates in hard filtering (inventory depth), so normalize it
+  // once here rather than per-candidate.
+  const requestedQuantity = Math.max(1, parseInt(intent?.quantity, 10) || 1);
 
   // Load buyer policy if userId is provided and buyerPolicy is not passed
   let policy = buyerPolicy;
@@ -36,8 +42,7 @@ export async function findEligibleProducts(intent, { merchantId = null, userId =
     FROM products p
     JOIN merchants m ON p.merchant_id = m.id
     LEFT JOIN product_ai_metadata pam ON pam.product_id = p.id
-    WHERE (p.is_test_lab = false OR p.is_test_lab IS NULL)
-      AND (p.commerce_eligible = true OR p.commerce_eligible IS NULL)
+    WHERE ${AI_CATALOG_PREDICATE}
   `;
   const params = [];
 
@@ -63,7 +68,9 @@ export async function findEligibleProducts(intent, { merchantId = null, userId =
     delivery_fee: parseFloat(row.delivery_fee || 0),
     delivery_days: parseInt(row.delivery_days || 2),
     merchant_rating: parseFloat(row.merchant_rating || 4.8),
-    inventory: parseInt(row.inventory || 25),
+    // Report real stock. `row.inventory || 25` turned a genuine 0 into 25,
+    // so an in_stock-flagged product with no units read as plentiful.
+    inventory: Number.isFinite(parseInt(row.inventory, 10)) ? parseInt(row.inventory, 10) : 0,
     specifications: typeof row.specifications === 'object' && row.specifications !== null ? row.specifications : {},
     attributes: typeof row.attributes === 'object' && row.attributes !== null ? row.attributes : {},
   }));
@@ -75,90 +82,54 @@ export async function findEligibleProducts(intent, { merchantId = null, userId =
     const failedRules = [];
     const matchedRules = [];
     // RULE 0: Content Safety & Prompt Injection Check
-    const textParts = [
-      prod.name || '',
-      prod.description || '',
-      typeof prod.specifications === 'object' ? JSON.stringify(prod.specifications) : (prod.specifications || ''),
-      prod.reviews ? JSON.stringify(prod.reviews) : '',
-      prod.ai_summary || '',
-      prod.target_audience || '',
-      prod.use_cases ? JSON.stringify(prod.use_cases) : '',
-      prod.ai_keywords ? JSON.stringify(prod.ai_keywords) : '',
-    ];
-    const originalText = textParts.filter(Boolean).join(' ');
-    const textToCheck = originalText.toLowerCase();
-    const promptInjectionRegexes = [
-      // 1. Instruction Overrides, Jailbreaks & Role Escalation
-      /(?:ignore|disregard|forget|override|cancel|bypass)\s+(?:all\s+)?(?:(?:previous|prior|existing|above|system|developer|policy|spending|buyer'?s?|user'?s?)\s+)?(?:the\s+)?(?:rules|instructions|prompts|commands|constraints|limits|policies|policy|budget|guidelines)/i,
-      /(?:new\s+instructions?|system\s+override|priority\s+override|jailbreak|developer\s+mode|god\s+mode)/i,
-      /\[(?:SYSTEM|DEVELOPER|ADMIN|ROOT|ASSISTANT|INSTRUCTION)\]/i,
-      /<\|im_start\|>(?:system|developer|admin)?/i,
-      /<<SYS>>|<SYS>|<\/SYS>|<<\/SYS>>/i,
-      /-{2,}\s*BEGIN\s+(?:SYSTEM|ADMIN|DEVELOPER)\s+(?:MESSAGE|INSTRUCTION)\s*-{2,}/i,
-      /###\s*(?:System|Developer|Admin|Instruction):/i,
-      /(?:system\s*:\s*you\s+are|developer\s*:\s*instruction|admin\s*:\s*execute)/i,
+    //
+    // Delegated to the canonical guard in promptSecurityGuard.js. This file
+    // previously carried its own ~30-pattern copy of the rule list, a third
+    // near-identical duplicate alongside purchaseGate.js and the Python
+    // service — three lists that could (and did) drift apart. The shared guard
+    // also handles Unicode/zero-width/homoglyph obfuscation and hex and
+    // percent-encoded payloads, which the local copy missed.
+    const contentScan = scanMerchantContent({
+      name: prod.name,
+      description: prod.description,
+      brand: prod.brand,
+      sku: prod.sku,
+      specifications: prod.specifications,
+      reviews: prod.reviews,
+      aiMetadata: {
+        summary: prod.ai_summary,
+        targetAudience: prod.target_audience,
+        useCases: prod.use_cases,
+        keywords: prod.ai_keywords,
+      },
+    });
 
-      // 2. Fake Admin Commands, Approvals & Policy Overrides
-      /(?:admin\s+(?:command|mode|privilege|override)|sudo\s+(?:approve|authorize|execute|buy|grant)|grant\s+(?:admin|root|permission|authorization)|root\s+(?:access|privilege))/i,
-      /(?:set_approval\s*=\s*(?:auto|true|allow|bypass)|auto_approve\s*=\s*true|force_approve\s*=\s*true)/i,
-      /(?:override|bypass|ignore)\s+(?:policy|policies|rules?)\s+(?:and\s+)?(?:approve|allow|authorize|grant)/i,
-      /(?:approve|authorize|allow)\s+(?:this\s+)?(?:transaction|order|purchase|intent)\s*(?:automatically|without\s+checks?|now)?/i,
-      /priority\s+executive\s+(?:order|approval|override)/i,
-      /transfer\s+funds/i,
-      
-      // 3. Spending Limit, Budget & Quantity Manipulation Directives
-      /bypass\s+(?:spending|budget|purchasing)\s*(?:limits?|polic(?:y|ies)|rules?)?/i,
-      /override\s+(?:spending|budget|limits?)/i,
-      /(?:set\s+limit\s*(?:to|=)\s*(?:unlimited|\d{7,})|no\s+spending\s+limit)/i,
-      /max_budget\s*=\s*(?:unlimited|[\d,]{7,})/i,
-      /(?:ignore|disregard|override)\s+(?:the\s+)?(?:buyer'?s?|user'?s?)?\s*budget/i,
-      /(?:set|increase|override|change)\s+quantity\s*(?:to|=)\s*\d+/i,
-      /(?:buy|order|purchase|get)\s+\d{2,}\s+(?:units|items|pcs|pieces|laptops|phones|chairs)/i,
-      
-      // 4. Price Manipulation & Spoofed Amount Directives
-      /(?:use|set|charge|pay|enter)\s+(?:₹|rs\.?|inr)?\s*\d+(?:\.\d+)?\s+(?:instead|as\s+price|rather\s+than)\b/i,
-      /(?:use|pay|charge|set)\s+.*?instead\s+of\s+(?:the\s+)?(?:real|actual|catalog|official|original)\s+price/i,
-      /(?:fake|spoofed|manipulated|override|discounted)\s+price\s*(?:to|=|\:)?\s*(?:₹|rs\.?|inr)?\s*\d+/i,
-      /price\s*=\s*(?:₹|rs\.?|inr)?\s*0(?:\.00)?\b/i,
-      
-      // 5. System Instructions Exfiltration & Prompt Revelation Directives
-      /(?:reveal|show|display|print|output|leak|disclose|expose|tell\s+me|repeat|what\s+are)\s+(?:the\s+)?(?:system|developer|hidden|internal|initial|agent)?\s*(?:instructions?|prompts?|rules?|guidelines?|config|context|secrets?)/i,
-      /(?:what\s+is\s+your\s+(?:system\s+prompt|prompt|instructions?))/i,
-      
-      // 6. Inventory & Stock Restriction Bypass Directives
-      /(?:ignore|bypass|override|disregard)\s+(?:all\s+)?(?:inventory|stock|quantity|out\s+of\s+stock)\s*(?:restrictions?|limits?|checks?|rules?)?/i,
-      /(?:force_in_stock|infinite_stock|bypass_inventory)\s*=\s*true/i,
-    ];
-
-    let hasInjection = promptInjectionRegexes.some((rx) => rx.test(textToCheck));
-    if (!hasInjection) {
-      const b64Matches = originalText.match(/[A-Za-z0-9+/]{16,}={0,2}/g) || [];
-      for (const cand of b64Matches) {
-        try {
-          const decoded = Buffer.from(cand, 'base64').toString('utf8');
-          if (promptInjectionRegexes.some((rx) => rx.test(decoded))) {
-            hasInjection = true;
-            break;
-          }
-        } catch (e) {}
-      }
-    }
-
-    if (hasInjection) {
+    if (!contentScan.clean) {
       failedRules.push({
         rule: 'SECURITY_THREAT_DETECTED',
         reason: 'Adversarial prompt injection pattern detected in untrusted product catalog content.',
+        fields: contentScan.findings.map((f) => f.field),
       });
     }
 
     // RULE 0b: Stock & Inventory Check
+    //
+    // Quantity is a HARD constraint, not a hint. This previously only tested
+    // `inventory <= 0`, so "buy 5 ergonomic chairs" happily returned a chair
+    // with a single unit in stock. The requested quantity must be actually
+    // available or the candidate is not eligible.
     if (!prod.in_stock || prod.inventory <= 0) {
       failedRules.push({
         rule: 'OUT_OF_STOCK',
         reason: `Product '${prod.name}' is currently out of stock (${prod.inventory || 0} available).`,
       });
+    } else if (prod.inventory < requestedQuantity) {
+      failedRules.push({
+        rule: 'INSUFFICIENT_INVENTORY',
+        reason: `Product '${prod.name}' has only ${prod.inventory} in stock, but ${requestedQuantity} were requested.`,
+      });
     } else {
-      matchedRules.push(`In stock (${prod.inventory} units available)`);
+      matchedRules.push(`In stock (${prod.inventory} units available, ${requestedQuantity} requested)`);
     }
 
     // RULE 1: Buyer Permitted Category (Hard Policy Boundary)

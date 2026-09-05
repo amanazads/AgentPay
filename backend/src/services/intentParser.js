@@ -83,7 +83,11 @@ export function parseBuyerIntent(queryText) {
 
   for (const [typeKey, typeDef] of Object.entries(PRODUCT_TYPE_TAXONOMY)) {
     for (const kw of typeDef.keywords) {
-      const kwRegex = new RegExp(`(^|[^a-z0-9])${kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9]|$)`, 'i');
+      // The trailing boundary allows a regular plural suffix. Without it,
+      // "buy 5 chairs" matched no keyword at all (the taxonomy lists "chair"),
+      // so productType came back null and the request could not be isolated to
+      // a category — which is how "5 ergonomic chairs" became NO_MATCH.
+      const kwRegex = new RegExp(`(^|[^a-z0-9])${kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:e?s)?([^a-z0-9]|$)`, 'i');
       if (kwRegex.test(lower)) {
         detectedType = typeKey;
         detectedCategory = typeDef.category;
@@ -289,4 +293,196 @@ export function extractSpecificModelTerms(queryText, detectedBrand = null) {
     .filter((t) => t.length >= 2 && !fillers.includes(t));
 
   return tokens.length > 0 ? tokens : null;
+}
+
+/**
+ * Merges client-supplied structured search filters into a parsed intent.
+ *
+ * Security / authority model:
+ *   - Filters are UNTRUSTED INPUT. They may only ever *narrow* the search, never
+ *     widen it, and they can never raise a budget ceiling, grant permissions,
+ *     or influence policy, pricing or approval. They are search constraints only.
+ *   - Where a natural-language constraint and a structured filter disagree, the
+ *     STRICTER of the two wins. This makes the filters fail-safe: a malicious or
+ *     careless filter cannot be used to escape a constraint the user typed.
+ *   - All values are coerced and bounds-checked server-side. The frontend is not
+ *     trusted to have validated anything.
+ *
+ * @param {object} parsedIntent - Output of parseBuyerIntent()
+ * @param {object} [filters] - { maxBudget, brand, delivery }
+ * @returns {object} A new intent object with the filters applied
+ */
+export function applyStructuredFilters(parsedIntent, filters = {}) {
+  const intent = {
+    ...parsedIntent,
+    hardConstraints: { ...(parsedIntent?.hardConstraints || {}) },
+    softPreferences: { ...(parsedIntent?.softPreferences || {}) },
+  };
+
+  if (!filters || typeof filters !== 'object') return intent;
+
+  const applied = [];
+
+  // --- Max budget: a hard ceiling, and only ever tightened. ---
+  const rawBudget = filters.maxBudget ?? filters.max_budget ?? filters.budget;
+  if (rawBudget !== undefined && rawBudget !== null && String(rawBudget).trim() !== '') {
+    const budget = Number.parseFloat(String(rawBudget).replace(/[^\d.]/g, ''));
+    if (Number.isFinite(budget) && budget > 0 && budget <= 100000000) {
+      intent.maxPrice = intent.maxPrice === null || intent.maxPrice === undefined
+        ? budget
+        : Math.min(intent.maxPrice, budget);
+      applied.push(`maxBudget=${intent.maxPrice}`);
+    }
+  }
+
+  // --- Preferred brand: a hard constraint when the request did not name one. ---
+  // If the user already named a brand in the request text, the typed request
+  // wins; a filter must not silently redirect the search to another brand.
+  const rawBrand = filters.brand ?? filters.preferredBrand ?? filters.preferred_brand;
+  if (typeof rawBrand === 'string' && rawBrand.trim()) {
+    const brand = rawBrand.trim().slice(0, 40).replace(/[^\p{L}\p{N}\s.&'-]/gu, '');
+    if (brand && !intent.hardConstraints.requiredBrand) {
+      intent.hardConstraints.requiredBrand = brand;
+      applied.push(`brand=${brand}`);
+    }
+  }
+
+  // --- Delivery speed: a ranking preference plus the pricing delivery method. ---
+  // Deliberately NOT a hard filter: express shipping availability is a merchant
+  // attribute, and treating it as a hard constraint would produce misleading
+  // NO_MATCH results. It influences ranking and the quoted delivery fee.
+  const rawDelivery = filters.delivery ?? filters.deliverySpeed ?? filters.delivery_speed;
+  if (typeof rawDelivery === 'string' && rawDelivery.trim()) {
+    const speed = rawDelivery.trim().toLowerCase();
+    if (speed === 'fastest' || speed === 'express') {
+      intent.softPreferences.fastestDelivery = true;
+      intent.deliveryMethod = 'EXPRESS';
+      applied.push('delivery=EXPRESS');
+    } else if (speed === 'standard') {
+      intent.deliveryMethod = 'STANDARD';
+      applied.push('delivery=STANDARD');
+    }
+  }
+
+  if (applied.length > 0) {
+    intent.appliedStructuredFilters = applied;
+  }
+
+  return intent;
+}
+
+/**
+ * Merges LLM-proposed intent into the deterministic intent, treating the LLM
+ * output strictly as UNTRUSTED DATA.
+ *
+ * The LLM may improve semantic understanding — recognising a product type or a
+ * spec the regex parser missed — but it is never the authority. Concretely it
+ * may NOT:
+ *   - raise (or remove) a budget ceiling
+ *   - change the quantity
+ *   - relax or delete any constraint the deterministic parser established
+ *   - introduce arbitrary keys that downstream code might act on
+ *
+ * It may only fill gaps, or tighten an existing numeric bound.
+ *
+ * @param {object} deterministic - Authoritative output of parseBuyerIntent()
+ * @param {object} aiIntent - Untrusted intent proposed by the AI service
+ * @returns {object} Merged intent, never weaker than `deterministic`
+ */
+export function mergeAiIntent(deterministic, aiIntent) {
+  const base = {
+    ...deterministic,
+    hardConstraints: { ...(deterministic?.hardConstraints || {}) },
+    softPreferences: { ...(deterministic?.softPreferences || {}) },
+  };
+
+  if (!aiIntent || typeof aiIntent !== 'object' || Array.isArray(aiIntent)) return base;
+
+  const rejected = [];
+
+  // productType / category: gap-fill only. Never let the model reclassify a
+  // request the deterministic parser already understood — that is how "buy a
+  // phone" turns into headphones.
+  if (!base.productType && typeof aiIntent.productType === 'string' && aiIntent.productType.trim()) {
+    base.productType = aiIntent.productType.trim().slice(0, 40);
+  } else if (base.productType && aiIntent.productType && aiIntent.productType !== base.productType) {
+    rejected.push('productType');
+  }
+
+  if (!base.category && typeof aiIntent.category === 'string' && aiIntent.category.trim()) {
+    base.category = aiIntent.category.trim().slice(0, 60);
+  } else if (base.category && aiIntent.category && aiIntent.category !== base.category) {
+    rejected.push('category');
+  }
+
+  // Budget: may only be tightened, never raised or cleared.
+  const aiMax = Number.parseFloat(aiIntent.maxPrice);
+  if (Number.isFinite(aiMax) && aiMax > 0) {
+    if (base.maxPrice === null || base.maxPrice === undefined) {
+      base.maxPrice = aiMax;
+    } else if (aiMax < base.maxPrice) {
+      base.maxPrice = aiMax;
+    } else if (aiMax > base.maxPrice) {
+      rejected.push('maxPrice');
+    }
+  } else if (aiIntent.maxPrice !== undefined && base.maxPrice) {
+    rejected.push('maxPrice');
+  }
+
+  // Min price: may only be raised (tightened).
+  const aiMin = Number.parseFloat(aiIntent.minPrice);
+  if (Number.isFinite(aiMin) && aiMin > 0) {
+    if (base.minPrice === null || base.minPrice === undefined) {
+      base.minPrice = aiMin;
+    } else if (aiMin > base.minPrice) {
+      base.minPrice = aiMin;
+    }
+  }
+
+  // Quantity is financially material (quantity x unit price). Deterministic only.
+  if (aiIntent.quantity !== undefined && Number.parseInt(aiIntent.quantity, 10) !== base.quantity) {
+    rejected.push('quantity');
+  }
+
+  // Hard constraints: additive only. An existing deterministic constraint is
+  // never overwritten or deleted by the model.
+  const ALLOWED_CONSTRAINTS = new Set([
+    'requiredCapacityMah', 'requiredRamGb', 'requiredStorageGb', 'requiredAnc',
+    'requiredResolution', 'requiredWireless', 'requiredWattageW', 'requiredGan',
+    'requiredBrand', 'requiredModelTerms', 'requiredModelPhrase',
+  ]);
+  const aiConstraints = aiIntent.hardConstraints;
+  if (aiConstraints && typeof aiConstraints === 'object' && !Array.isArray(aiConstraints)) {
+    for (const [key, value] of Object.entries(aiConstraints)) {
+      if (!ALLOWED_CONSTRAINTS.has(key)) {
+        rejected.push(`hardConstraints.${key}`);
+        continue;
+      }
+      if (base.hardConstraints[key] !== undefined) {
+        if (JSON.stringify(base.hardConstraints[key]) !== JSON.stringify(value)) {
+          rejected.push(`hardConstraints.${key}`);
+        }
+        continue;
+      }
+      base.hardConstraints[key] = value;
+    }
+  }
+
+  // Soft preferences are ranking hints only, so the model may contribute
+  // booleans here — but only known keys, and only as `true`.
+  const ALLOWED_PREFERENCES = new Set(['fastestDelivery', 'highRating', 'ergonomic']);
+  const aiPrefs = aiIntent.softPreferences;
+  if (aiPrefs && typeof aiPrefs === 'object' && !Array.isArray(aiPrefs)) {
+    for (const [key, value] of Object.entries(aiPrefs)) {
+      if (ALLOWED_PREFERENCES.has(key) && value === true) {
+        base.softPreferences[key] = true;
+      }
+    }
+  }
+
+  if (rejected.length > 0) {
+    base.rejectedAiFields = rejected;
+  }
+
+  return base;
 }

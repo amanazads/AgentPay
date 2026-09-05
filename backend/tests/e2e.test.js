@@ -50,15 +50,15 @@ describe('AgentPay End-to-End Autonomous Commerce Lifecycle', () => {
 
     // Seed test products
     const p1Res = await query(`
-      INSERT INTO products (merchant_id, name, description, category, price, currency, in_stock, specifications)
-      VALUES ($1, 'Test Headphones', 'Noise Cancelling Headphones', 'electronics', 14999, 'INR', true, '{"anc": true}')
+      INSERT INTO products (merchant_id, name, description, category, price, currency, in_stock, inventory, specifications)
+      VALUES ($1, 'Test Headphones', 'Noise Cancelling Headphones', 'electronics', 14999, 'INR', true, 100, '{"anc": true}')
       RETURNING *
     `, [testMerchantId]);
     normalProduct = p1Res.rows[0];
 
     const p2Res = await query(`
-      INSERT INTO products (merchant_id, name, description, category, price, currency, in_stock, specifications)
-      VALUES ($1, 'Test Laptop', 'Development Laptop', 'electronics', 64990, 'INR', true, '{"ram": "16GB"}')
+      INSERT INTO products (merchant_id, name, description, category, price, currency, in_stock, inventory, specifications)
+      VALUES ($1, 'Test Laptop', 'Development Laptop', 'electronics', 64990, 'INR', true, 100, '{"ram": "16GB"}')
       RETURNING *
     `, [testMerchantId]);
     thresholdProduct = p2Res.rows[0];

@@ -56,61 +56,96 @@ class AgentTools:
             "ai_metadata": ai_metadata,
         }
 
+    class DiscoveryUnavailable(Exception):
+        """
+        Raised when the authoritative AI catalog cannot be reached.
+
+        This is deliberately NOT swallowed into an empty result list. An empty
+        list is indistinguishable from "no products match", which would let a
+        catalog outage masquerade as a legitimate NO_MATCH. Callers must render
+        a discovery-unavailable state instead.
+        """
+
     async def search_products(
         self,
         query: Optional[str] = None,
         category: Optional[str] = None,
+        product_type: Optional[str] = None,
+        brand: Optional[str] = None,
         max_price: Optional[float] = None,
         min_price: Optional[float] = None,
-        limit: int = 50,
+        limit: int = 200,
+        max_pages: int = 5,
     ) -> List[Dict[str, Any]]:
+        """
+        Searches the AUTHORITATIVE agentic catalog with real query parameters
+        and pages until the result set is exhausted (or max_pages is hit).
+
+        Two deliberate behaviours:
+
+        1. NO FALLBACK TO /api/products. That endpoint is the generic storefront
+           catalog and does not apply the AI commerce eligibility boundary, so
+           it can expose test-lab, inactive and commerce-ineligible products.
+           Falling back to it silently traded correctness for availability. If
+           /api/ai/catalog is unavailable we raise DiscoveryUnavailable.
+
+        2. The query is actually passed to the server. The previous caller
+           fetched a generic first page of 50 products and filtered locally,
+           which is why arbitrary product searches failed: the requested item
+           was frequently not in the first page at all.
+        """
         headers = {}
         if getattr(settings, "INTERNAL_TOKEN", None):
             headers["x-agentpay-internal-token"] = settings.INTERNAL_TOKEN
 
-        # 1. Prefer authoritative /api/ai/catalog (agentpay.catalog.v1)
+        page_size = max(1, min(int(limit or 200), 200))
+        collected: List[Dict[str, Any]] = []
+        offset = 0
+        last_error: Optional[Exception] = None
+
         async with httpx.AsyncClient(timeout=10.0) as client:
-            try:
-                params = {"limit": limit, "inStockOnly": "true"}
+            for _ in range(max(1, int(max_pages))):
+                params: Dict[str, Any] = {"limit": page_size, "offset": offset}
                 if query:
                     params["search"] = query
                 if category:
                     params["category"] = category
+                if product_type:
+                    params["productType"] = product_type
+                if brand:
+                    params["brand"] = brand
                 if max_price:
                     params["maxPrice"] = max_price
                 if min_price:
                     params["minPrice"] = min_price
 
-                res = await client.get(f"{self.base_url}/ai/catalog", params=params, headers=headers)
-                if res.status_code == 200:
-                    data = res.json()
-                    items = data.get("items", [])
-                    if items:
-                        return [self.normalize_catalog_item(item) for item in items]
-            except Exception as e:
-                print(f"[AgentTools] AI Catalog search error, falling back to /products: {e}")
+                try:
+                    res = await client.get(f"{self.base_url}/ai/catalog", params=params, headers=headers)
+                except Exception as e:  # network / connection failure
+                    last_error = e
+                    break
 
-            # 2. Resilient fallback to /products
-            try:
-                p_params = {"limit": limit, "in_stock": "true"}
-                if query:
-                    p_params["search"] = query
-                if category:
-                    p_params["category"] = category
-                if max_price:
-                    p_params["max_price"] = max_price
-                if min_price:
-                    p_params["min_price"] = min_price
+                if res.status_code != 200:
+                    last_error = RuntimeError(
+                        f"AI catalog returned HTTP {res.status_code}"
+                    )
+                    break
 
-                res = await client.get(f"{self.base_url}/products", params=p_params, headers=headers)
-                if res.status_code == 200:
-                    data = res.json()
-                    products = data.get("products", [])
-                    return [self.normalize_catalog_item(p) for p in products]
-            except Exception as e:
-                print(f"[AgentTools] Products search error: {e}")
+                data = res.json()
+                items = data.get("items", []) or []
+                collected.extend(self.normalize_catalog_item(item) for item in items)
 
-        return []
+                if not data.get("hasMore") or not items:
+                    return collected
+
+                offset += len(items)
+
+            if last_error is not None and not collected:
+                raise self.DiscoveryUnavailable(
+                    f"Authoritative AI catalog is unavailable: {last_error}"
+                )
+
+        return collected
 
     async def get_product(self, product_id: str) -> Optional[Dict[str, Any]]:
         headers = {}
@@ -118,40 +153,50 @@ class AgentTools:
             headers["x-agentpay-internal-token"] = settings.INTERNAL_TOKEN
 
         async with httpx.AsyncClient(timeout=10.0) as client:
+            # Authoritative catalog ONLY. The /api/products fallback that used to
+            # live here does not apply the AI commerce eligibility boundary, so
+            # it could hand back a test-lab, inactive or ineligible product that
+            # the list endpoint would never have surfaced.
             try:
                 res = await client.get(f"{self.base_url}/ai/catalog/{product_id}", headers=headers)
                 if res.status_code == 200:
                     return self.normalize_catalog_item(res.json())
+                if res.status_code == 404:
+                    # Not in the AI catalog means not eligible. That is an answer,
+                    # not an error, and it must not be worked around.
+                    return None
+                raise self.DiscoveryUnavailable(
+                    f"AI catalog returned HTTP {res.status_code} for product {product_id}"
+                )
+            except self.DiscoveryUnavailable:
+                raise
             except Exception as e:
-                print(f"[AgentTools] AI Catalog get product error: {e}")
-
-            try:
-                res = await client.get(f"{self.base_url}/products/{product_id}", headers=headers)
-                if res.status_code == 200:
-                    p = res.json().get("product")
-                    return self.normalize_catalog_item(p) if p else None
-            except Exception as e:
-                print(f"[AgentTools] Products get product error: {e}")
-
-        return None
+                raise self.DiscoveryUnavailable(
+                    f"Authoritative AI catalog is unavailable: {e}"
+                ) from e
 
     async def compare_products(self, product_ids: List[str]) -> List[Dict[str, Any]]:
+        """
+        Compares products through the authoritative AI catalog only.
+
+        Previously this called /api/products/compare, which applies no AI
+        commerce eligibility boundary — a comparison table could therefore
+        include products the buyer is not permitted to transact. Each id is now
+        resolved through get_product(), which enforces the same boundary as the
+        list endpoint; ineligible ids simply drop out of the comparison.
+        """
         if not product_ids:
             return []
-        ids_str = ",".join(product_ids)
-        headers = {}
-        if getattr(settings, "INTERNAL_TOKEN", None):
-            headers["x-agentpay-internal-token"] = settings.INTERNAL_TOKEN
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        compared: List[Dict[str, Any]] = []
+        for pid in product_ids:
             try:
-                res = await client.get(f"{self.base_url}/products/compare", params={"ids": ids_str}, headers=headers)
-                if res.status_code == 200:
-                    products = res.json().get("products", [])
-                    return [self.normalize_catalog_item(p) for p in products]
-            except Exception as e:
-                print(f"[AgentTools] Compare error: {e}")
-        return []
+                product = await self.get_product(pid)
+            except self.DiscoveryUnavailable:
+                raise
+            if product:
+                compared.append(product)
+        return compared
 
     async def get_agent_details(self, agent_id: str) -> Optional[Dict[str, Any]]:
         headers = {}

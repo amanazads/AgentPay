@@ -9,8 +9,9 @@ import './MerchantPortal.css';
 export default function MerchantAICommerce() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [data, setData] = useState(null);
-  const [demoState, setDemoState] = useState(null);
+  const [merchantProducts, setMerchantProducts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
   const [selectedProductId, setSelectedProductId] = useState(null);
   const [selectedScenario, setSelectedScenario] = useState('happy_path');
   const [showDemo, setShowDemo] = useState(searchParams.get('runDemo') === 'true');
@@ -21,16 +22,28 @@ export default function MerchantAICommerce() {
   }, []);
 
   const fetchAICommerce = async () => {
+    // Both sources are MERCHANT-SCOPED. This previously also called
+    // api.getAICommerceReadinessData(), which is
+    // /api/simulation/commerce/catalog-readiness — global demo data belonging to
+    // the simulation lab, not to this merchant. Mixing it into the real merchant
+    // dashboard leaked other merchants' catalog into this store's view.
+    //
+    // Failures are no longer swallowed with .catch(() => null): a failed request
+    // must surface as "unable to verify", never as a fabricated perfect score.
+    setLoading(true);
+    setLoadError(null);
     try {
-      setLoading(true);
-      const [readinessRes, demoDataRes] = await Promise.all([
-        api.getMerchantAICommerce().catch(() => null),
-        api.getAICommerceReadinessData().catch(() => null),
+      const [readinessRes, productsRes] = await Promise.all([
+        api.getMerchantAICommerce(),
+        api.getMerchantProducts(),
       ]);
       setData(readinessRes);
-      setDemoState(demoDataRes);
+      setMerchantProducts(productsRes?.products || []);
     } catch (e) {
       console.error('Failed to load AI commerce data', e);
+      setData(null);
+      setMerchantProducts([]);
+      setLoadError(e?.message || 'The server did not respond.');
     } finally {
       setLoading(false);
     }
@@ -42,18 +55,18 @@ export default function MerchantAICommerce() {
     setShowDemo(true);
   };
 
-  const verifiedPillars = data?.verifiedPillarsCount ?? 6;
-  const totalPillars = data?.totalPillarsCount ?? 6;
-  const pillars = data?.pillars || [
-    { name: 'Catalog & AI Metadata', status: 'READY', score: 100, verified: true, description: '27/27 products registered with structured machine schema.' },
-    { name: 'Structured Product Specifications', status: 'READY', score: 100, verified: true, description: '27/27 items with machine-readable technical attributes.' },
-    { name: 'Live Inventory Availability', status: 'CONNECTED', score: 96, verified: true, description: '26/27 active in-stock SKUs ready for immediate dispatch (1 out of stock).' },
-    { name: 'Price Stability & Surge Guard', status: 'VERIFIED', score: 100, verified: true, description: 'Deterministic pre-authorized quote locking with active 2% surge protection.' },
-    { name: 'Autonomous AI Checkout Protocol', status: 'READY', score: 100, verified: true, description: 'Pre-authorized AI purchasing agents can execute orders within buyer limits.' },
-    { name: 'Payment Rails + Webhooks', status: 'VERIFIED', score: 100, verified: true, description: 'Razorpay Test Sandbox active with HMAC-SHA256 signature verification & idempotent webhooks.' },
-  ];
+  // NOTHING here defaults to a verified value. Every figure comes from the
+  // backend response or is not shown at all. The previous fallbacks (`?? 6` and
+  // a hardcoded six-pillar array claiming "27/27 products") rendered a perfect
+  // 6/6 scorecard whenever the API call failed — a false-positive readiness
+  // claim that a merchant could reasonably act on.
+  const verifiedPillars = data?.verifiedPillarsCount ?? null;
+  const totalPillars = data?.totalPillarsCount ?? null;
+  const pillars = data?.pillars || [];
+  const readinessPercent =
+    verifiedPillars !== null && totalPillars ? Math.round((verifiedPillars / totalPillars) * 100) : null;
 
-  const products = demoState?.products || [];
+  const products = merchantProducts;
   const categories = ['ALL', ...new Set(products.map((p) => p.category || 'Electronics'))];
   const filteredProducts = catalogCategory === 'ALL'
     ? products
@@ -63,6 +76,40 @@ export default function MerchantAICommerce() {
     const num = parseFloat(val) || 0;
     return `₹${num.toLocaleString('en-IN')}`;
   };
+
+  if (loading) {
+    return (
+      <div className="card-panel" style={{ padding: '3rem', textAlign: 'center' }}>
+        <div style={{ fontSize: '1rem', fontWeight: 600, color: '#1e293b' }}>
+          Checking merchant readiness...
+        </div>
+        <p className="text-small" style={{ color: 'var(--text-subtle)', marginTop: 6 }}>
+          Reading your store's live catalog, inventory and payment configuration.
+        </p>
+      </div>
+    );
+  }
+
+  if (loadError || !data) {
+    // Explicitly NOT a scorecard. We do not know this store's readiness, so we
+    // say so rather than showing numbers we did not receive.
+    return (
+      <div className="card-panel" style={{ padding: '2rem', border: '1px solid #fecaca', backgroundColor: '#fef2f2' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#991b1b', fontWeight: 700, marginBottom: 8 }}>
+          <Icons.ShieldAlert size={20} color="#dc2626" />
+          <span>Unable to verify merchant readiness</span>
+        </div>
+        <p className="text-small" style={{ color: '#7f1d1d', lineHeight: 1.6, marginBottom: '1rem' }}>
+          We could not reach your store's readiness data{loadError ? `: ${loadError}` : '.'} No readiness
+          score is shown, because we do not have one — this is not a report that your store is unready,
+          only that we could not check.
+        </p>
+        <Button variant="primary" onClick={fetchAICommerce} icon={<Icons.Activity size={15} />}>
+          Retry
+        </Button>
+      </div>
+    );
+  }
 
   if (showDemo) {
     return (
@@ -106,21 +153,27 @@ export default function MerchantAICommerce() {
             <span className="text-caption" style={{ textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em', color: 'var(--text-subtle)' }}>
               AI Commerce Readiness
             </span>
-            <div style={{ fontSize: '2.5rem', fontWeight: 800, color: '#065f46', letterSpacing: '-0.03em', lineHeight: 1.1, marginTop: 4 }}>
+            <div style={{ fontSize: '2.5rem', fontWeight: 800, color: readinessPercent === 100 ? '#065f46' : '#92400e', letterSpacing: '-0.03em', lineHeight: 1.1, marginTop: 4 }}>
               {verifiedPillars} / {totalPillars} Capabilities Verified
             </div>
             <p className="text-small" style={{ color: '#334155', marginTop: 6, fontWeight: 500 }}>
-              {data?.catalogHealthText || '27 total products • 27 AI-readable • 26 currently available • 1 out of stock'}
+              {/* No invented catalog counts. If the backend did not send a
+                  health summary, we say nothing rather than claiming 27 products. */}
+              {data.catalogHealthText || 'Catalog summary unavailable for this store.'}
             </p>
           </div>
 
           <div style={{ width: '100%', maxWidth: 360 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-subtle)', marginBottom: 6 }}>
               <span>Readiness Diagnostic</span>
-              <span style={{ color: '#166534', fontWeight: 700 }}>100% Operational</span>
+              {/* Reports the actual computed percentage. This was hardcoded to
+                  "100% Operational" regardless of the real score. */}
+              <span style={{ color: readinessPercent === 100 ? '#166534' : '#92400e', fontWeight: 700 }}>
+                {readinessPercent}% {readinessPercent === 100 ? 'Operational' : 'Ready'}
+              </span>
             </div>
             <div style={{ width: '100%', height: 8, backgroundColor: '#e2e8f0', borderRadius: 'var(--radius-full)', overflow: 'hidden' }}>
-              <div style={{ width: `${Math.round((verifiedPillars / totalPillars) * 100)}%`, height: '100%', backgroundColor: '#16a34a', borderRadius: 'var(--radius-full)' }} />
+              <div style={{ width: `${readinessPercent ?? 0}%`, height: '100%', backgroundColor: readinessPercent === 100 ? '#16a34a' : '#d97706', borderRadius: 'var(--radius-full)' }} />
             </div>
 
             <div style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem' }}>
@@ -188,6 +241,13 @@ export default function MerchantAICommerce() {
 
         <div className="card-panel-body">
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1rem' }}>
+            {filteredProducts.length === 0 && (
+              <div style={{ gridColumn: '1 / -1', padding: '2rem', textAlign: 'center', color: 'var(--text-subtle)', fontSize: '0.875rem' }}>
+                {products.length === 0
+                  ? 'No products in your catalog yet. Add products to become discoverable by AI buyers.'
+                  : `No products in the "${catalogCategory}" category.`}
+              </div>
+            )}
             {filteredProducts.map((prod) => {
               const isOutOfStock = !prod.inStock || prod.inventory === 0;
 
@@ -207,19 +267,17 @@ export default function MerchantAICommerce() {
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem', marginBottom: '0.5rem' }}>
                       <span className="badge-tag">{prod.category}</span>
-                      <div style={{ display: 'flex', gap: 4 }}>
-                        <span style={{ fontSize: '0.6875rem', fontWeight: 600, color: '#16a34a', backgroundColor: '#dcfce7', padding: '2px 6px', borderRadius: 4 }}>
-                          Discoverable ✓
+                      {/* Badges report the backend's own per-product verdict.
+                          "Discoverable ✓" used to be printed unconditionally,
+                          and transactability was inferred from stock alone —
+                          both claimed more than the server had verified. */}
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        <span style={{ fontSize: '0.6875rem', fontWeight: 600, color: prod.aiDiscoverable ? '#16a34a' : '#92400e', backgroundColor: prod.aiDiscoverable ? '#dcfce7' : '#fef3c7', padding: '2px 6px', borderRadius: 4 }}>
+                          {prod.aiDiscoverable ? 'Discoverable ✓' : 'Not discoverable'}
                         </span>
-                        {!isOutOfStock ? (
-                          <span style={{ fontSize: '0.6875rem', fontWeight: 600, color: '#16a34a', backgroundColor: '#dcfce7', padding: '2px 6px', borderRadius: 4 }}>
-                            Transactable ✓
-                          </span>
-                        ) : (
-                          <span style={{ fontSize: '0.6875rem', fontWeight: 600, color: '#dc2626', backgroundColor: '#fee2e2', padding: '2px 6px', borderRadius: 4 }}>
-                            Out of Stock ✕
-                          </span>
-                        )}
+                        <span style={{ fontSize: '0.6875rem', fontWeight: 600, color: prod.aiTransactable ? '#16a34a' : '#dc2626', backgroundColor: prod.aiTransactable ? '#dcfce7' : '#fee2e2', padding: '2px 6px', borderRadius: 4 }}>
+                          {prod.aiTransactable ? 'Transactable ✓' : (isOutOfStock ? 'Out of Stock ✕' : 'Not transactable ✕')}
+                        </span>
                       </div>
                     </div>
 
@@ -240,10 +298,18 @@ export default function MerchantAICommerce() {
                       <div style={{ textAlign: 'right' }}>
                         <div style={{ fontSize: '0.6875rem', color: 'var(--text-subtle)' }}>Available Stock</div>
                         <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: !isOutOfStock ? '#166534' : '#dc2626' }}>
-                          {!isOutOfStock ? `${prod.inventory || 25} in stock` : '0 available'}
+                          {/* Real stock only. `prod.inventory || 25` reported
+                              25 units for any product whose stock was 0. */}
+                          {!isOutOfStock ? `${prod.inventory} in stock` : '0 available'}
                         </div>
                       </div>
                     </div>
+
+                    {!prod.aiTransactable && prod.readinessReason && (
+                      <div style={{ fontSize: '0.71875rem', color: '#92400e', backgroundColor: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 6, padding: '0.4rem 0.6rem', marginBottom: '0.75rem' }}>
+                        {prod.readinessReason}
+                      </div>
+                    )}
                   </div>
 
                   <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
