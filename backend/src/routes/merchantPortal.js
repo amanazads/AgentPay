@@ -6,6 +6,10 @@ import { requireAuth, requireMerchant } from '../middleware/authMiddleware.js';
 import { transitionOrderFulfillment, getOrdersForMerchant, cancelOrder, processOrderRefund } from '../services/orderService.js';
 import { recordAuditEvent } from '../services/auditService.js';
 import crypto from 'crypto';
+import {
+  validateProductCreate,
+  validateProductUpdate,
+} from '../services/merchantProductValidator.js';
 
 const router = Router();
 
@@ -803,13 +807,26 @@ router.post('/products', async (req, res, next) => {
       specifications = {},
     } = req.body;
 
-    if (!name || !price || parseFloat(price) <= 0) {
-      return res.status(400).json({ error: 'Valid product name and positive price are required.' });
+    // §12: merchant input (typed or AI-autofilled) is untrusted. Validate price,
+    // inventory, category, product type, SKU and specifications, and reject any
+    // text carrying instructions aimed at the AI buyer agent, BEFORE it becomes
+    // catalog truth. Previously only name and price>0 were checked, so negative
+    // inventory, unknown categories, malformed specs and injected product copy
+    // all entered the catalog unchallenged.
+    const validated = validateProductCreate(req.body);
+
+    const genSku = validated.sku || `SKU-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+
+    // SKU must be unique within the merchant's own catalog.
+    const skuClash = await query(
+      'SELECT id FROM products WHERE merchant_id = $1 AND UPPER(sku) = UPPER($2) LIMIT 1',
+      [merchantId, genSku]
+    );
+    if (skuClash.rows.length > 0) {
+      return res.status(409).json({ error: `SKU '${genSku}' already exists in your catalog.` });
     }
 
-    const genSku = (sku && sku.trim()) || `SKU-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
-
-    let deducedProductType = req.body.product_type || req.body.productType || null;
+    let deducedProductType = validated.productType !== 'other' ? validated.productType : null;
     if (!deducedProductType) {
       const n = (name || '').toLowerCase();
       if (n.includes('power bank') || n.includes('powercore') || n.includes('powerbank') || n.includes('portable charger')) deducedProductType = 'power_bank';
@@ -834,15 +851,16 @@ router.post('/products', async (req, res, next) => {
     `, [
       merchantId,
       genSku,
-      name.trim(),
-      description || aiSummary || name,
-      brand || 'Brand',
-      category || 'Electronics',
-      deducedProductType,
-      parseFloat(price),
-      parseInt(inventory) || 25,
-      (parseInt(inventory) || 25) > 0,
-      typeof specifications === 'object' ? JSON.stringify(specifications) : specifications,
+      validated.name,
+      validated.description || validated.aiSummary || validated.name,
+      validated.brand || null,
+      validated.category,
+      deducedProductType || 'other',
+      validated.price,
+      validated.inventory,
+      // in_stock is derived from real inventory, never asserted by the merchant.
+      validated.inventory > 0,
+      JSON.stringify(validated.specifications),
     ]);
 
     const prod = insProd.rows[0];
@@ -919,10 +937,22 @@ router.put('/products/:id', async (req, res, next) => {
     }
     const existing = existingRes.rows[0];
 
-    const newPrice = price !== undefined ? parseFloat(price) : parseFloat(existing.price);
-    const newInventory = inventory !== undefined ? parseInt(inventory) : parseInt(existing.inventory);
-    const newInStock = inStock !== undefined ? Boolean(inStock) : (newInventory > 0);
-    const newStatus = status || existing.status || 'ACTIVE';
+    // §12: validate the submitted fields before they overwrite catalog truth.
+    // Previously price and inventory went through bare parseFloat/parseInt, so
+    // a negative price, NaN, or an unknown status reached the database — the
+    // last of which now trips a CHECK constraint and would surface as a 500
+    // rather than an actionable 400.
+    const validatedUpdate = validateProductUpdate(req.body);
+
+    const newPrice = validatedUpdate.price !== undefined ? validatedUpdate.price : parseFloat(existing.price);
+    const newInventory = validatedUpdate.inventory !== undefined
+      ? validatedUpdate.inventory
+      : parseInt(existing.inventory, 10) || 0;
+    const newStatus = validatedUpdate.status || existing.status || 'ACTIVE';
+    // in_stock is DERIVED, never merchant-asserted: a merchant cannot flag a
+    // zero-inventory product as in stock, and an ACTIVE product with stock is
+    // always available.
+    const newInStock = newInventory > 0 && newStatus === 'ACTIVE';
 
     // Update products table and increment catalog version
     await query(`
@@ -940,15 +970,15 @@ router.put('/products/:id', async (req, res, next) => {
           updated_at = NOW()
       WHERE id = $10 AND merchant_id = $11
     `, [
-      name ? name.trim() : null,
-      brand || null,
-      category || null,
+      validatedUpdate.name ?? null,
+      validatedUpdate.brand ?? null,
+      validatedUpdate.category ?? null,
       newPrice,
       newInventory,
       newInStock,
       newStatus,
-      specifications !== undefined ? (typeof specifications === 'object' ? JSON.stringify(specifications) : specifications) : null,
-      description || aiSummary || null,
+      validatedUpdate.specifications !== undefined ? JSON.stringify(validatedUpdate.specifications) : null,
+      validatedUpdate.description ?? validatedUpdate.aiSummary ?? null,
       id,
       merchantId,
     ]);

@@ -302,10 +302,26 @@ Application URL: **`http://localhost:5173`**
 
 ## 9. Automated Test Battery
 
-AgentPay includes an automated test battery verifying financial safety, concurrency locks, price integrity, payment verification, and prompt defense:
+AgentPay includes an automated test battery verifying financial safety, concurrency locks, price integrity, payment verification, search relevance, and prompt-injection defence.
 
-* **Backend Test Battery**: **26 test suites, 276 automated tests passing** (Jest).
-* **AI Service Suite**: **4 pytest tests passing** (`tests/test_prompt_guard.py`).
+Counts below are what the suites actually contain and what they actually report.
+
+* **Backend (Jest)**: 9 test suites, 189 tests — **188 passing, 1 environment-dependent** (see note).
+  * `promptSecurityGuard.test.js` — prompt-injection matrix (user input + merchant content, encodings, obfuscation)
+  * `securityInvariant.test.js` — proves the backend refuses a compromised AI verdict on every guard independently
+  * `searchRelevance.test.js` — search relevance matrix, NO_MATCH behaviour, untrusted-LLM-intent merging
+  * `merchantProductValidator.test.js` — merchant input validation
+  * `candidateFilter.test.js`, `policyEngine.test.js`, `pricingService.test.js`, `riskEngine.test.js`, `e2e.test.js`
+* **AI Service (pytest)**: 21 tests passing (`test_prompt_guard.py`, `test_buyer_agent.py`, `test_search_and_ranking.py`).
+
+> **Environment note.** One `e2e.test.js` case (the approval-flow settlement) creates two
+> Razorpay orders. Where `api.razorpay.com` is unreachable, the SDK spends ~21s per call
+> timing out and the test exceeds the 30s Jest limit. It passes on a machine with normal
+> outbound internet access. This is a network dependency, not a code defect — but it is
+> listed here rather than described as passing.
+
+**Prerequisite:** the backend suite requires a running PostgreSQL instance matching
+`DATABASE_URL`, with migrations applied (`npm run migrate`).
 
 ```bash
 # Run backend test battery

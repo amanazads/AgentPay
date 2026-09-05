@@ -10,7 +10,7 @@ flowchart TD
     end
 
     subgraph GATEWAY_LAYER["2. Gateway & Control Plane"]
-        GW["Express API Gateway & Auth Server<br/>(JWT • RBAC • Rate Limiter)"]
+        GW["Express API Gateway & Auth Server<br/>(JWT • RBAC • Prompt-Injection Guard)"]
         SM["Commerce Orchestrator & State Machine<br/>(24 Purchase States • 2-Phase Inventory)"]
     end
 
@@ -63,7 +63,7 @@ flowchart TD
                                      v
 +------------------------------------+------------------------------------+
 |                         GATEWAY & AUTH LAYER                            |
-|  Express Gateway • Rate Limiter • RBAC Guard • Bcrypt/JWT Auth Server   |
+|  Express Gateway • Prompt Guard • RBAC Guard • Bcrypt/JWT Auth Server  |
 +------------------------------------+------------------------------------+
                                      |
                                      v
