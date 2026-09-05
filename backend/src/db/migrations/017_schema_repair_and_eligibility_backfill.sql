@@ -124,3 +124,56 @@ ALTER TABLE transactions ADD CONSTRAINT transactions_status_check
     'refunded',
     'cancelled'
   ));
+
+-- ─── PART D: MISSING TABLES REFERENCED BY APPLICATION CODE ───────────────────
+-- Both of these are read and written by src/, but no migration ever created
+-- them. The refresh_tokens omission is the more serious of the two: signup and
+-- login both call createRefreshToken(), so on a schema-correct fresh database
+-- NO USER COULD REGISTER OR SIGN IN AT ALL.
+
+-- Used by utils/authUtils.js (createRefreshToken, validateAndRotateRefreshToken)
+-- and routes/auth.js (logout).
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token      VARCHAR(128) NOT NULL UNIQUE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user    ON refresh_tokens (user_id);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires ON refresh_tokens (expires_at);
+
+-- Used by services/authorizationService.js (temporary spending-limit holds).
+-- That service currently has no callers, so the table is created rather than
+-- the service deleted: per the audit rules, unreferenced code is left intact
+-- and only confirmed-orphaned files are removed.
+CREATE TABLE IF NOT EXISTS authorization_reservations (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id            UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  purchase_intent_id UUID REFERENCES purchase_intents(id) ON DELETE SET NULL,
+  amount             NUMERIC(12,2) NOT NULL CHECK (amount >= 0),
+  status             VARCHAR(20) NOT NULL DEFAULT 'RESERVED'
+                       CHECK (status IN ('RESERVED', 'COMMITTED', 'RELEASED', 'EXPIRED')),
+  expires_at         TIMESTAMPTZ NOT NULL,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_authorization_reservations_active
+  ON authorization_reservations (user_id, status, expires_at);
+
+-- ─── PART E: product_ai_metadata.specifications_normalized ───────────────────
+-- Selected by the AI catalog feed (both the list and single-product endpoints)
+-- and by candidateFilter, but never created. Every request to
+-- GET /api/ai/catalog returned HTTP 500 on a schema-correct database, which
+-- also meant the AI service's discovery tool had nothing to fall back to.
+--
+-- Backfilled from the product's own specifications so existing rows carry the
+-- normalized view immediately.
+ALTER TABLE product_ai_metadata
+  ADD COLUMN IF NOT EXISTS specifications_normalized JSONB DEFAULT '{}'::jsonb;
+
+UPDATE product_ai_metadata pam
+SET specifications_normalized = COALESCE(p.specifications, '{}'::jsonb)
+FROM products p
+WHERE p.id = pam.product_id
+  AND (pam.specifications_normalized IS NULL OR pam.specifications_normalized = '{}'::jsonb);

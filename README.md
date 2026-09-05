@@ -306,7 +306,7 @@ AgentPay includes an automated test battery verifying financial safety, concurre
 
 Counts below are what the suites actually contain and what they actually report.
 
-* **Backend (Jest)**: 9 test suites, 189 tests — **188 passing, 1 environment-dependent** (see note).
+* **Backend (Jest)**: 9 test suites, **189 tests, all passing** (verified on a freshly migrated database).
   * `promptSecurityGuard.test.js` — prompt-injection matrix (user input + merchant content, encodings, obfuscation)
   * `securityInvariant.test.js` — proves the backend refuses a compromised AI verdict on every guard independently
   * `searchRelevance.test.js` — search relevance matrix, NO_MATCH behaviour, untrusted-LLM-intent merging
@@ -314,14 +314,16 @@ Counts below are what the suites actually contain and what they actually report.
   * `candidateFilter.test.js`, `policyEngine.test.js`, `pricingService.test.js`, `riskEngine.test.js`, `e2e.test.js`
 * **AI Service (pytest)**: 21 tests passing (`test_prompt_guard.py`, `test_buyer_agent.py`, `test_search_and_ranking.py`).
 
-> **Environment note.** One `e2e.test.js` case (the approval-flow settlement) creates two
-> Razorpay orders. Where `api.razorpay.com` is unreachable, the SDK spends ~21s per call
-> timing out and the test exceeds the 30s Jest limit. It passes on a machine with normal
-> outbound internet access. This is a network dependency, not a code defect — but it is
-> listed here rather than described as passing.
+**Prerequisites.** The backend suite needs:
 
-**Prerequisite:** the backend suite requires a running PostgreSQL instance matching
-`DATABASE_URL`, with migrations applied (`npm run migrate`).
+* **PostgreSQL** matching `DATABASE_URL`, with migrations applied (`npm run migrate`).
+* **Redis** at `REDIS_URL`. Without it the idempotency locks fall back to database polling,
+  and the `e2e.test.js` approval-flow case can exceed the 30s Jest timeout.
+* Outbound access to `api.razorpay.com` is *not* required — the test provider falls back to a
+  clearly-labelled simulated order — but where it is blocked the Razorpay SDK spends ~21s per
+  call timing out, which also pushes that one case towards the timeout.
+
+Both are provided by `docker compose up -d`.
 
 ```bash
 # Run backend test battery
